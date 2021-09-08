@@ -70,7 +70,7 @@
 
     <!-- testing -->
     <it.debug>false</it.debug>
-    <jetty.test.version>5.5</jetty.test.version>
+    <jetty.test.version>5.8</jetty.test.version>
     <hamcrest.version>2.2</hamcrest.version>
 
     <!-- springboot is only used for jetty-maven-plugin it test
