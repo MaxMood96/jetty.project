@@ -71,7 +71,7 @@
     <!-- testing -->
     <it.debug>false</it.debug>
     <jetty.test.version>5.5</jetty.test.version>
-    <hamcrest.version>2.2</hamcrest.version>
+    <hamcrest.version>3.0</hamcrest.version>
 
     <!-- springboot is only used for jetty-maven-plugin it test
     otherwise depending on Spring Boot might be chicken and egg issue :) -->
