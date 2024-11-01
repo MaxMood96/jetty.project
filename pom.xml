@@ -768,7 +768,7 @@
         <plugin>
           <groupId>org.asciidoctor</groupId>
           <artifactId>asciidoctor-maven-plugin</artifactId>
-          <version>2.1.0</version>
+          <version>3.1.0</version>
           <dependencies>
             <dependency>
               <groupId>org.asciidoctor</groupId>
@@ -1221,7 +1221,7 @@
       <dependency>
         <groupId>org.asciidoctor</groupId>
         <artifactId>asciidoctor-maven-plugin</artifactId>
-        <version>2.1.0</version>
+        <version>3.1.0</version>
       </dependency>
       <dependency>
         <groupId>org.asciidoctor</groupId>
