@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -138,6 +138,16 @@ public interface Stream
          */
         public interface Listener
         {
+            /**
+             * <p>Callback method invoked when a stream is created locally by
+             * {@link Session.Client#newRequest(HeadersFrame, Listener)}.</p>
+             *
+             * @param stream the newly created stream
+             */
+            public default void onNewStream(Stream.Client stream)
+            {
+            }
+
             /**
              * <p>Callback method invoked when a response is received.</p>
              * <p>To read response content, applications should call

@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -17,7 +17,6 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.io.Writer;
 import java.nio.ByteBuffer;
-import java.util.concurrent.TimeUnit;
 import javax.websocket.EncodeException;
 import javax.websocket.RemoteEndpoint;
 
@@ -64,7 +63,7 @@ public class JavaxWebSocketBasicRemote extends JavaxWebSocketRemoteEndpoint impl
 
         FutureCallback b = new FutureCallback();
         sendFrame(new Frame(OpCode.BINARY).setPayload(data), b, false);
-        b.block(getBlockingTimeout(), TimeUnit.MILLISECONDS);
+        b.block();
     }
 
     @Override
@@ -96,7 +95,7 @@ public class JavaxWebSocketBasicRemote extends JavaxWebSocketRemoteEndpoint impl
         frame.setFin(isLast);
         FutureCallback b = new FutureCallback();
         sendFrame(frame, b, false);
-        b.block(getBlockingTimeout(), TimeUnit.MILLISECONDS);
+        b.block();
     }
 
     @Override
@@ -104,7 +103,7 @@ public class JavaxWebSocketBasicRemote extends JavaxWebSocketRemoteEndpoint impl
     {
         FutureCallback b = new FutureCallback();
         super.sendObject(data, b);
-        b.block(getBlockingTimeout(), TimeUnit.MILLISECONDS);
+        b.block();
     }
 
     @Override
@@ -118,7 +117,7 @@ public class JavaxWebSocketBasicRemote extends JavaxWebSocketRemoteEndpoint impl
 
         FutureCallback b = new FutureCallback();
         sendFrame(new Frame(OpCode.TEXT).setPayload(text), b, false);
-        b.block(getBlockingTimeout(), TimeUnit.MILLISECONDS);
+        b.block();
     }
 
     @Override
@@ -150,12 +149,6 @@ public class JavaxWebSocketBasicRemote extends JavaxWebSocketRemoteEndpoint impl
         frame.setFin(isLast);
         FutureCallback b = new FutureCallback();
         sendFrame(frame, b, false);
-        b.block(getBlockingTimeout(), TimeUnit.MILLISECONDS);
-    }
-
-    private long getBlockingTimeout()
-    {
-        long idleTimeout = getIdleTimeout();
-        return (idleTimeout > 0) ? idleTimeout + 1000 : idleTimeout;
+        b.block();
     }
 }

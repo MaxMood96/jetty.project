@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -662,7 +662,7 @@ public class HttpChannelState
                             catch (Throwable x)
                             {
                                 if (LOG.isDebugEnabled())
-                                    LOG.warn("{} while invoking onTimeout listener {}", x.toString(), listener, x);
+                                    LOG.debug("{} while invoking onTimeout listener {}", x.toString(), listener, x);
                                 else
                                     LOG.warn("{} while invoking onTimeout listener {}", x.toString(), listener);
                             }

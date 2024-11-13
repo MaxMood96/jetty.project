@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -22,7 +22,7 @@ import org.eclipse.jetty.websocket.core.Frame;
 
 public class PartialByteArrayMessageSink extends AbstractMessageSink
 {
-    private static byte[] EMPTY_BUFFER = new byte[0];
+    private static final byte[] EMPTY_BUFFER = new byte[0];
 
     public PartialByteArrayMessageSink(CoreSession session, MethodHandle methodHandle)
     {

@@ -1,18 +1,38 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+
+  <modelVersion>4.0.0</modelVersion>
   <parent>
     <groupId>org.eclipse.jetty.quic</groupId>
     <artifactId>quic-quiche</artifactId>
-    <version>10.0.12-SNAPSHOT</version>
+    <version>10.0.25-SNAPSHOT</version>
   </parent>
-
-  <modelVersion>4.0.0</modelVersion>
   <artifactId>quic-quiche-foreign-incubator</artifactId>
   <name>Jetty :: QUIC :: Quiche :: Foreign Binding (incubator)</name>
 
   <properties>
     <bundle-symbolic-name>${project.groupId}.quic-quiche-foreign-incubator</bundle-symbolic-name>
   </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>org.eclipse.jetty</groupId>
+      <artifactId>jetty-util</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.eclipse.jetty.quic</groupId>
+      <artifactId>quic-quiche-common</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-api</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.eclipse.jetty</groupId>
+      <artifactId>jetty-slf4j-impl</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
 
   <build>
     <plugins>
@@ -37,37 +57,46 @@
         </configuration>
       </plugin>
       <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-javadoc-plugin</artifactId>
+        <configuration>
+          <source>17</source>
+          <release>17</release>
+        </configuration>
+      </plugin>
+      <plugin>
         <artifactId>maven-surefire-plugin</artifactId>
         <configuration>
-          <argLine>
-            @{argLine}
+          <argLine>@{argLine}
             ${jetty.surefire.argLine}
             --add-opens org.eclipse.jetty.quic.quiche.foreign.incubator/org.eclipse.jetty.quic.quiche.foreign.incubator=ALL-UNNAMED
-            --enable-native-access org.eclipse.jetty.quic.quiche.foreign.incubator
-          </argLine>
+            --enable-native-access org.eclipse.jetty.quic.quiche.foreign.incubator</argLine>
         </configuration>
       </plugin>
     </plugins>
   </build>
 
-  <dependencies>
-    <dependency>
-      <groupId>org.slf4j</groupId>
-      <artifactId>slf4j-api</artifactId>
-    </dependency>
-    <dependency>
-      <groupId>org.eclipse.jetty.quic</groupId>
-      <artifactId>quic-quiche-common</artifactId>
-    </dependency>
-    <dependency>
-      <groupId>org.eclipse.jetty</groupId>
-      <artifactId>jetty-util</artifactId>
-    </dependency>
-    <dependency>
-      <groupId>org.eclipse.jetty</groupId>
-      <artifactId>jetty-slf4j-impl</artifactId>
-      <scope>test</scope>
-    </dependency>
-  </dependencies>
-
+  <profiles>
+    <profile>
+      <!--
+       This module can be built with JDK 17+ but can only be tested on JDK 17 as the Foreign module
+       changed both its API (18) and its name (19), so tests are disabled on JDKs over 17.
+       Eventually, new Foreign modules for JDKs 18 and 19 should be added.
+       -->
+      <id>jdk18</id>
+      <activation>
+        <jdk>[18,)</jdk>
+      </activation>
+      <build>
+        <plugins>
+          <plugin>
+            <artifactId>maven-surefire-plugin</artifactId>
+            <configuration>
+              <skipTests>true</skipTests>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
 </project>

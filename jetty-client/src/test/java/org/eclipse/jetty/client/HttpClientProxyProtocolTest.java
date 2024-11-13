@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -70,7 +70,6 @@ public class HttpClientProxyProtocolTest
         clientThreads.setName("client");
         client = new HttpClient();
         client.setExecutor(clientThreads);
-        client.setRemoveIdleDestinations(false);
         client.start();
     }
 
@@ -232,7 +231,7 @@ public class HttpClientProxyProtocolTest
 
         int proxyPort = connector.getLocalPort();
         int serverPort = proxyPort + 1; // Any port will do.
-        client.getProxyConfiguration().getProxies().add(new HttpProxy("localhost", proxyPort));
+        client.getProxyConfiguration().addProxy(new HttpProxy("localhost", proxyPort));
 
         // We are simulating to be a HttpClient inside a proxy.
         // The server is configured with the PROXY protocol to know the socket address of clients.

@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -75,6 +75,31 @@ public abstract class Resource implements ResourceFactory, Closeable
     public static boolean getDefaultUseCaches()
     {
         return __defaultUseCaches;
+    }
+
+    /**
+     * Attempt to resolve the real path of a Resource to potentially remove any symlinks causing the Resource to be an alias.
+     * @param resource the resource to resolve.
+     * @return a new Resource resolved to the real path of the original Resource, or the original resource if it was not an alias.
+     */
+    public static Resource resolveAlias(Resource resource)
+    {
+        if (!resource.isAlias())
+            return resource;
+
+        try
+        {
+            File file = resource.getFile();
+            if (file != null)
+                return Resource.newResource(file.toPath().toRealPath());
+        }
+        catch (IOException e)
+        {
+            if (LOG.isDebugEnabled())
+                LOG.debug("resolve alias failed", e);
+        }
+
+        return resource;
     }
 
     /**

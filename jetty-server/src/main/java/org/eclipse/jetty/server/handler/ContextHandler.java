@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -20,8 +20,6 @@ import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URL;
 import java.net.URLClassLoader;
-import java.security.AccessController;
-import java.security.PrivilegedAction;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -61,6 +59,8 @@ import javax.servlet.http.HttpSessionAttributeListener;
 import javax.servlet.http.HttpSessionIdListener;
 import javax.servlet.http.HttpSessionListener;
 
+import org.eclipse.jetty.http.HttpHeader;
+import org.eclipse.jetty.http.HttpHeaderValue;
 import org.eclipse.jetty.http.HttpURI;
 import org.eclipse.jetty.http.MimeTypes;
 import org.eclipse.jetty.server.AllowedResourceAliasChecker;
@@ -85,6 +85,7 @@ import org.eclipse.jetty.util.component.DumpableCollection;
 import org.eclipse.jetty.util.component.Graceful;
 import org.eclipse.jetty.util.component.LifeCycle;
 import org.eclipse.jetty.util.resource.Resource;
+import org.eclipse.jetty.util.security.SecurityUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -217,7 +218,7 @@ public class ContextHandler extends ScopedHandler implements Attributes, Gracefu
     private int _maxFormKeys = Integer.getInteger(MAX_FORM_KEYS_KEY, DEFAULT_MAX_FORM_KEYS);
     private int _maxFormContentSize = Integer.getInteger(MAX_FORM_CONTENT_SIZE_KEY, DEFAULT_MAX_FORM_CONTENT_SIZE);
     private boolean _compactPath = false;
-    private boolean _usingSecurityManager = System.getSecurityManager() != null;
+    private boolean _usingSecurityManager = getSecurityManager() != null;
 
     private final List<EventListener> _programmaticListeners = new CopyOnWriteArrayList<>();
     private final List<ServletContextListener> _servletContextListeners = new CopyOnWriteArrayList<>();
@@ -324,7 +325,7 @@ public class ContextHandler extends ScopedHandler implements Attributes, Gracefu
 
     public void setUsingSecurityManager(boolean usingSecurityManager)
     {
-        if (usingSecurityManager && System.getSecurityManager() == null)
+        if (usingSecurityManager && getSecurityManager() == null)
             throw new IllegalStateException("No security manager");
         _usingSecurityManager = usingSecurityManager;
     }
@@ -859,8 +860,13 @@ public class ContextHandler extends ScopedHandler implements Attributes, Gracefu
             throw new IllegalStateException("Null contextPath");
 
         if (getBaseResource() != null && getBaseResource().isAlias())
+        {
+            // We may have symlink to baseResource, try to resolve symlink if possible.
+            _baseResource = Resource.resolveAlias(_baseResource);
+
             LOG.warn("BaseResource {} is aliased to {} in {}. May not be supported in future releases.",
                 getBaseResource(), getBaseResource().getAlias(), this);
+        }
 
         _availability.set(Availability.STARTING);
 
@@ -1208,10 +1214,10 @@ public class ContextHandler extends ScopedHandler implements Attributes, Gracefu
             // context request must end with /
             baseRequest.setHandled(true);
             String queryString = baseRequest.getQueryString();
-            baseRequest.getResponse().sendRedirect(
-                HttpServletResponse.SC_MOVED_TEMPORARILY,
-                baseRequest.getRequestURI() + (queryString == null ? "/" : ("/?" + queryString)),
-                true);
+            // If there is request content, close the connection rather than try to consume it.
+            if (baseRequest.getContentType() != null || baseRequest.getContentLengthLong() > 0)
+                response.setHeader(HttpHeader.CONNECTION.asString(), HttpHeaderValue.CLOSE.asString());
+            response.sendRedirect(baseRequest.getRequestURI() + (queryString == null ? "/" : ("/?" + queryString)));
             return false;
         }
 
@@ -1967,7 +1973,7 @@ public class ContextHandler extends ScopedHandler implements Attributes, Gracefu
                 LOG.debug("Aliased resource: {}~={}", resource, resource.getAlias());
 
             // alias checks
-            for (AliasCheck check : getAliasChecks())
+            for (AliasCheck check : _aliasChecks)
             {
                 if (check.check(path, resource))
                 {
@@ -2105,6 +2111,11 @@ public class ContextHandler extends ScopedHandler implements Attributes, Gracefu
     {
         _aliasChecks.forEach(this::removeBean);
         _aliasChecks.clear();
+    }
+
+    private static Object getSecurityManager()
+    {
+        return SecurityUtils.getSecurityManager();
     }
 
     /**
@@ -2554,11 +2565,9 @@ public class ContextHandler extends ScopedHandler implements Attributes, Gracefu
             {
                 // check to see if the classloader of the caller is the same as the context
                 // classloader, or a parent of it, as required by the javadoc specification.
-
-                // Wrap in a PrivilegedAction so that only Jetty code will require the
-                // "createSecurityManager" permission, not also application code that calls this method.
-                Caller caller = AccessController.doPrivileged((PrivilegedAction<Caller>)Caller::new);
-                ClassLoader callerLoader = caller.getCallerClassLoader(2);
+                ClassLoader callerLoader = StackWalker.getInstance(StackWalker.Option.RETAIN_CLASS_REFERENCE)
+                    .getCallerClass()
+                    .getClassLoader();
                 while (callerLoader != null)
                 {
                     if (callerLoader == _classLoader)
@@ -2566,7 +2575,7 @@ public class ContextHandler extends ScopedHandler implements Attributes, Gracefu
                     else
                         callerLoader = callerLoader.getParent();
                 }
-                System.getSecurityManager().checkPermission(new RuntimePermission("getClassLoader"));
+                SecurityUtils.checkPermission(new RuntimePermission("getClassLoader"));
                 return _classLoader;
             }
         }
@@ -3095,18 +3104,5 @@ public class ContextHandler extends ScopedHandler implements Attributes, Gracefu
          * @param request A request that is applicable to the scope, or null
          */
         void exitScope(Context context, Request request);
-    }
-
-    private static class Caller extends SecurityManager
-    {
-        public ClassLoader getCallerClassLoader(int depth)
-        {
-            if (depth < 0)
-                return null;
-            Class<?>[] classContext = getClassContext();
-            if (classContext.length <= depth)
-                return null;
-            return classContext[depth].getClassLoader();
-        }
     }
 }

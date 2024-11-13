@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -197,6 +197,25 @@ public class ResourceHandlerTest
                 "\r\n"));
 
         assertThat(response.getStatus(), equalTo(304));
+    }
+
+    @Test
+    public void testIfModifiedSinceIgnored() throws Exception
+    {
+        HttpTester.Response response = HttpTester.parseResponse(
+            _local.getResponse("GET /resource/simple.txt HTTP/1.0\r\n\r\n"));
+        assertThat(response.getStatus(), equalTo(200));
+        assertThat(response.get(LAST_MODIFIED), Matchers.notNullValue());
+        assertThat(response.getContent(), containsString("simple text"));
+        String lastModified = response.get(LAST_MODIFIED);
+
+        response = HttpTester.parseResponse(_local.getResponse(
+            "GET /resource/simple.txt HTTP/1.0\r\n" +
+                "If-Modified-Since: " + lastModified + "\r\n" +
+                "If-None-Match: XYZ\r\n" +
+                "\r\n"));
+
+        assertThat(response.getStatus(), equalTo(200));
     }
 
     @Test

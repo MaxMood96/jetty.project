@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -24,8 +24,15 @@ import static jdk.incubator.foreign.CLinker.C_SHORT;
 
 public class quiche_send_info
 {
-    private static final MemoryLayout LAYOUT = MemoryLayout.structLayout( // struct sockaddr_storage
-        MemoryLayout.structLayout(
+    private static final MemoryLayout LAYOUT = MemoryLayout.structLayout(
+        MemoryLayout.structLayout( // struct sockaddr_storage
+            C_SHORT.withName("ss_family"),
+            MemoryLayout.sequenceLayout(118, C_CHAR).withName("__ss_padding"),
+            C_LONG.withName("__ss_align")
+        ).withName("from"),
+        C_INT.withName("from_len"),
+        MemoryLayout.paddingLayout(32),
+        MemoryLayout.structLayout( // struct sockaddr_storage
             C_SHORT.withName("ss_family"),
             MemoryLayout.sequenceLayout(118, C_CHAR).withName("__ss_padding"),
             C_LONG.withName("__ss_align")

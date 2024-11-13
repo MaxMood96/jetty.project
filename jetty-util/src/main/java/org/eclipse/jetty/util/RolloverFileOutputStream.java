@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -233,9 +233,19 @@ public class RolloverFileOutputStream extends OutputStream
             File file = new File(_filename);
             _filename = file.getCanonicalPath();
             file = new File(_filename);
-            File dir = new File(file.getParent());
-            if (!dir.isDirectory() || !dir.canWrite())
+            File dir = file.getParentFile();
+            if (!dir.exists())
+            {
+                throw new IOException("Log directory does not exist. Path=" + dir);
+            }
+            else if (!dir.isDirectory())
+            {
+                throw new IOException("Path for Log directory is not a directory. Path=" + dir);
+            }
+            else if (!dir.canWrite())
+            {
                 throw new IOException("Cannot write log directory " + dir);
+            }
 
             // Is this a rollover file?
             String filename = file.getName();

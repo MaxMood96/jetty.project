@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -24,6 +24,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -40,6 +41,7 @@ import java.util.function.Consumer;
 import java.util.function.LongConsumer;
 import java.util.function.Supplier;
 
+import org.eclipse.jetty.client.api.Connection;
 import org.eclipse.jetty.client.api.ContentProvider;
 import org.eclipse.jetty.client.api.ContentResponse;
 import org.eclipse.jetty.client.api.Request;
@@ -55,6 +57,8 @@ import org.eclipse.jetty.http.HttpMethod;
 import org.eclipse.jetty.http.HttpVersion;
 import org.eclipse.jetty.util.Callback;
 import org.eclipse.jetty.util.Fields;
+import org.eclipse.jetty.util.NanoTime;
+import org.eclipse.jetty.util.URIUtil;
 
 public class HttpRequest implements Request
 {
@@ -66,6 +70,7 @@ public class HttpRequest implements Request
     private final AtomicReference<Throwable> aborted = new AtomicReference<>();
     private final HttpClient client;
     private final HttpConversation conversation;
+    private Connection connection;
     private String scheme;
     private String host;
     private int port;
@@ -77,7 +82,7 @@ public class HttpRequest implements Request
     private boolean versionExplicit;
     private long idleTimeout = -1;
     private long timeout;
-    private long timeoutAt = Long.MAX_VALUE;
+    private long timeoutNanoTime = Long.MAX_VALUE;
     private Content content;
     private boolean followRedirects;
     private List<HttpCookie> cookies;
@@ -91,6 +96,10 @@ public class HttpRequest implements Request
 
     protected HttpRequest(HttpClient client, HttpConversation conversation, URI uri)
     {
+        // URIs built from strings that have an internationalized domain name (IDN)
+        // are parsed without errors, but uri.getHost() returns null.
+        if (uri.getHost() == null)
+            throw new IllegalArgumentException(String.format("Invalid URI host: null (authority: %s)", uri.getRawAuthority()));
         this.client = client;
         this.conversation = conversation;
         scheme = uri.getScheme();
@@ -109,9 +118,61 @@ public class HttpRequest implements Request
             headers.put(userAgentField);
     }
 
+    HttpRequest copy(URI newURI)
+    {
+        if (newURI == null)
+        {
+            StringBuilder builder = new StringBuilder(64);
+            URIUtil.appendSchemeHostPort(builder, getScheme(), getHost(), getPort());
+            newURI = URI.create(builder.toString());
+        }
+
+        HttpRequest newRequest = copyInstance(newURI);
+        newRequest.method(getMethod())
+            .version(getVersion())
+            .body(getBody())
+            .idleTimeout(getIdleTimeout(), TimeUnit.MILLISECONDS)
+            .timeout(getTimeout(), TimeUnit.MILLISECONDS)
+            .followRedirects(isFollowRedirects())
+            .tag(getTag())
+            .headers(h -> h.clear().add(getHeaders())
+                // Remove the headers that depend on the URI.
+                .remove(EnumSet.of(
+                    HttpHeader.HOST,
+                    HttpHeader.EXPECT,
+                    HttpHeader.COOKIE,
+                    HttpHeader.AUTHORIZATION,
+                    HttpHeader.PROXY_AUTHORIZATION
+                ))
+            );
+
+        return newRequest;
+    }
+
+    HttpRequest copyInstance(URI newURI)
+    {
+        return new HttpRequest(getHttpClient(), getConversation(), newURI);
+    }
+
+    HttpClient getHttpClient()
+    {
+        return client;
+    }
+
     public HttpConversation getConversation()
     {
         return conversation;
+    }
+
+    @Override
+    public Connection getConnection()
+    {
+        return connection;
+    }
+
+    void setConnection(Connection connection)
+    {
+        this.connection = connection;
     }
 
     @Override
@@ -815,24 +876,26 @@ public class HttpRequest implements Request
     {
         if (listener != null)
             responseListeners.add(listener);
-        sent();
         sender.accept(this, responseListeners);
     }
 
     void sent()
     {
-        long timeout = getTimeout();
-        if (timeout > 0)
-            timeoutAt = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeout);
+        if (timeoutNanoTime == Long.MAX_VALUE)
+        {
+            long timeout = getTimeout();
+            if (timeout > 0)
+                timeoutNanoTime = NanoTime.now() + TimeUnit.MILLISECONDS.toNanos(timeout);
+        }
     }
 
     /**
      * @return The nanoTime at which the timeout expires or {@link Long#MAX_VALUE} if there is no timeout.
      * @see #timeout(long, TimeUnit)
      */
-    long getTimeoutAt()
+    long getTimeoutNanoTime()
     {
-        return timeoutAt;
+        return timeoutNanoTime;
     }
 
     protected List<Response.ResponseListener> getResponseListeners()

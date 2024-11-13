@@ -1,15 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+  <modelVersion>4.0.0</modelVersion>
   <parent>
     <groupId>org.eclipse.jetty.osgi</groupId>
     <artifactId>jetty-osgi-project</artifactId>
-    <version>10.0.12-SNAPSHOT</version>
+    <version>10.0.25-SNAPSHOT</version>
   </parent>
-  <modelVersion>4.0.0</modelVersion>
   <artifactId>test-jetty-osgi-context</artifactId>
   <name>Jetty :: OSGi :: Test Context</name>
   <description>Test Jetty OSGi bundle with a ContextHandler</description>
   <properties>
     <bundle-symbolic-name>${project.groupId}.testcontext</bundle-symbolic-name>
+    <maven.deploy.skip>true</maven.deploy.skip>
+    <maven.javadoc.skip>true</maven.javadoc.skip>
   </properties>
   <dependencies>
     <dependency>
@@ -37,27 +40,7 @@
         <directory>src/main/context</directory>
       </resource>
     </resources>
-    <pluginManagement>
-      <plugins>
-        <plugin>
-          <groupId>org.apache.maven.plugins</groupId>
-          <artifactId>maven-javadoc-plugin</artifactId>
-          <configuration>
-            <!-- No point building javadoc on testing projects -->
-            <skip>true</skip>
-          </configuration>
-        </plugin>
-      </plugins>
-    </pluginManagement>
     <plugins>
-      <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-deploy-plugin</artifactId>
-        <configuration>
-          <!-- DO NOT DEPLOY (or Release) -->
-          <skip>true</skip>
-        </configuration>
-      </plugin>
       <plugin>
         <groupId>org.apache.felix</groupId>
         <artifactId>maven-bundle-plugin</artifactId>
@@ -72,17 +55,15 @@
             of the packages it uses; no need to reflect some tight dependency determined at
             compilation time. -->
             <_nouses>true</_nouses>
-            <Import-Package>
-              javax.servlet;version="[$(version;==;${jetty.servlet.api.version}),$(version;+;${jetty.servlet.api.version}))",
+            <Import-Package>javax.servlet;version="[$(version;==;${jetty.servlet.api.version}),$(version;+;${jetty.servlet.api.version}))",
               javax.servlet.resources;version="[$(version;==;${jetty.servlet.api.version}),$(version;+;${jetty.servlet.api.version}))",
               org.osgi.framework,
-              org.osgi.service.cm;version="1.2.0",
+              org.osgi.service.cm;version="${osgi-service-cm-version}",
               org.osgi.service.packageadmin,
               org.osgi.service.startlevel;version="1.0.0",
               org.osgi.service.url;version="1.0.0",
-              org.osgi.util.tracker;version="1.3.0",
-              *
-            </Import-Package>
+              org.osgi.util.tracker;version="${osgi-util-tracker-version}",
+              *</Import-Package>
             <DynamicImport-Package>org.eclipse.jetty.*;version="[$(version;==;${parsedVersion.osgiVersion}),$(version;+;${parsedVersion.osgiVersion}))"</DynamicImport-Package>
           </instructions>
         </configuration>

@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+
+  <modelVersion>4.0.0</modelVersion>
   <parent>
     <groupId>org.eclipse.jetty.tests</groupId>
     <artifactId>tests-parent</artifactId>
-    <version>10.0.12-SNAPSHOT</version>
+    <version>10.0.25-SNAPSHOT</version>
   </parent>
-
-  <modelVersion>4.0.0</modelVersion>
   <artifactId>test-http-client-transport</artifactId>
   <packaging>jar</packaging>
   <name>Test :: HTTP Client Transports</name>
@@ -14,63 +14,13 @@
   <properties>
     <bundle-symbolic-name>${project.groupId}.client.http</bundle-symbolic-name>
     <h3.test.enabled>false</h3.test.enabled>
+    <maven.deploy.skip>true</maven.deploy.skip>
   </properties>
-
-  <build>
-    <pluginManagement>
-      <plugins>
-        <plugin>
-          <groupId>org.apache.maven.plugins</groupId>
-          <artifactId>maven-surefire-plugin</artifactId>
-          <configuration>
-            <systemPropertyVariables>
-              <org.eclipse.jetty.http.client.TransportProvider.H3.enable>${h3.test.enabled}</org.eclipse.jetty.http.client.TransportProvider.H3.enable>
-            </systemPropertyVariables>
-          </configuration>
-        </plugin>
-      </plugins>
-    </pluginManagement>
-    <plugins>
-      <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-deploy-plugin</artifactId>
-        <configuration>
-          <!-- DO NOT DEPLOY (or Release) -->
-          <skip>true</skip>
-        </configuration>
-      </plugin>
-    </plugins>
-  </build>
-
-  <profiles>
-    <profile>
-      <id>jdk17</id>
-      <activation>
-        <jdk>[17,)</jdk>
-      </activation>
-      <build>
-        <plugins>
-          <plugin>
-            <artifactId>maven-surefire-plugin</artifactId>
-            <configuration>
-              <argLine>
-                @{argLine}
-                ${jetty.surefire.argLine}
-                --add-modules jdk.incubator.foreign
-                --enable-native-access ALL-UNNAMED
-              </argLine>
-            </configuration>
-          </plugin>
-        </plugins>
-      </build>
-    </profile>
-  </profiles>
 
   <dependencies>
     <dependency>
-      <groupId>org.slf4j</groupId>
-      <artifactId>slf4j-api</artifactId>
-      <scope>test</scope>
+      <groupId>org.eclipse.jetty.toolchain</groupId>
+      <artifactId>jetty-test-helper</artifactId>
     </dependency>
     <dependency>
       <groupId>org.awaitility</groupId>
@@ -89,6 +39,11 @@
     </dependency>
     <dependency>
       <groupId>org.eclipse.jetty</groupId>
+      <artifactId>jetty-client</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.eclipse.jetty</groupId>
       <artifactId>jetty-jmx</artifactId>
       <scope>test</scope>
     </dependency>
@@ -99,27 +54,7 @@
     </dependency>
     <dependency>
       <groupId>org.eclipse.jetty</groupId>
-      <artifactId>jetty-client</artifactId>
-      <scope>test</scope>
-    </dependency>
-    <dependency>
-      <groupId>org.eclipse.jetty.http2</groupId>
-      <artifactId>http2-server</artifactId>
-      <scope>test</scope>
-    </dependency>
-    <dependency>
-      <groupId>org.eclipse.jetty.http2</groupId>
-      <artifactId>http2-http-client-transport</artifactId>
-      <scope>test</scope>
-    </dependency>
-    <dependency>
-      <groupId>org.eclipse.jetty.http3</groupId>
-      <artifactId>http3-server</artifactId>
-      <scope>test</scope>
-    </dependency>
-    <dependency>
-      <groupId>org.eclipse.jetty.http3</groupId>
-      <artifactId>http3-http-client-transport</artifactId>
+      <artifactId>jetty-slf4j-impl</artifactId>
       <scope>test</scope>
     </dependency>
     <dependency>
@@ -133,14 +68,85 @@
       <scope>test</scope>
     </dependency>
     <dependency>
-      <groupId>org.eclipse.jetty</groupId>
-      <artifactId>jetty-slf4j-impl</artifactId>
+      <groupId>org.eclipse.jetty.http2</groupId>
+      <artifactId>http2-http-client-transport</artifactId>
       <scope>test</scope>
     </dependency>
     <dependency>
-      <groupId>org.eclipse.jetty.toolchain</groupId>
-      <artifactId>jetty-test-helper</artifactId>
+      <groupId>org.eclipse.jetty.http2</groupId>
+      <artifactId>http2-server</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.eclipse.jetty.http3</groupId>
+      <artifactId>http3-http-client-transport</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.eclipse.jetty.http3</groupId>
+      <artifactId>http3-server</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-api</artifactId>
+      <scope>test</scope>
     </dependency>
   </dependencies>
+
+  <build>
+    <pluginManagement>
+      <plugins>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-surefire-plugin</artifactId>
+          <configuration>
+            <systemPropertyVariables>
+              <org.eclipse.jetty.http.client.TransportProvider.H3.enable>${h3.test.enabled}</org.eclipse.jetty.http.client.TransportProvider.H3.enable>
+            </systemPropertyVariables>
+          </configuration>
+        </plugin>
+      </plugins>
+    </pluginManagement>
+  </build>
+
+  <profiles>
+    <profile>
+      <id>enable-incubator-foreign</id>
+      <activation>
+        <jdk>[17,19)</jdk>
+      </activation>
+      <build>
+        <plugins>
+          <plugin>
+            <artifactId>maven-surefire-plugin</artifactId>
+            <configuration>
+              <argLine>@{argLine}
+                ${jetty.surefire.argLine}
+                --add-modules jdk.incubator.foreign
+                --enable-native-access ALL-UNNAMED</argLine>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+    <profile>
+      <id>enable-foreign-and-virtual-threads-preview</id>
+      <activation>
+        <jdk>[19,21)</jdk>
+      </activation>
+      <build>
+        <plugins>
+          <plugin>
+            <artifactId>maven-surefire-plugin</artifactId>
+            <configuration>
+              <argLine>@{argLine}
+                --enable-preview</argLine>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
 
 </project>

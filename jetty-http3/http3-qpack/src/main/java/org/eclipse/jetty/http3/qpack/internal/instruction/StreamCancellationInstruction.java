@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -15,8 +15,8 @@ package org.eclipse.jetty.http3.qpack.internal.instruction;
 
 import java.nio.ByteBuffer;
 
+import org.eclipse.jetty.http.compression.NBitIntegerEncoder;
 import org.eclipse.jetty.http3.qpack.Instruction;
-import org.eclipse.jetty.http3.qpack.internal.util.NBitIntegerEncoder;
 import org.eclipse.jetty.io.ByteBufferPool;
 import org.eclipse.jetty.util.BufferUtil;
 
@@ -32,7 +32,7 @@ public class StreamCancellationInstruction implements Instruction
     @Override
     public void encode(ByteBufferPool.Lease lease)
     {
-        int size = NBitIntegerEncoder.octectsNeeded(6, _streamId) + 1;
+        int size = NBitIntegerEncoder.octetsNeeded(6, _streamId);
         ByteBuffer buffer = lease.acquire(size, false);
         buffer.put((byte)0x40);
         NBitIntegerEncoder.encode(buffer, 6, _streamId);
@@ -43,6 +43,6 @@ public class StreamCancellationInstruction implements Instruction
     @Override
     public String toString()
     {
-        return String.format("%s@%x", getClass().getSimpleName(), hashCode());
+        return String.format("%s@%x[stream=%d]", getClass().getSimpleName(), hashCode(), _streamId);
     }
 }

@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -269,6 +269,7 @@ public class CrossOriginFilter implements Filter
 
     private void handle(HttpServletRequest request, HttpServletResponse response, FilterChain chain) throws IOException, ServletException
     {
+        response.addHeader("Vary", ORIGIN_HEADER);
         String origin = request.getHeader(ORIGIN_HEADER);
         // Is it a cross origin request ?
         if (origin != null && isEnabled(request))
@@ -389,8 +390,6 @@ public class CrossOriginFilter implements Filter
     private void handleSimpleResponse(HttpServletRequest request, HttpServletResponse response, String origin)
     {
         response.setHeader(ACCESS_CONTROL_ALLOW_ORIGIN_HEADER, origin);
-        //W3C CORS spec http://www.w3.org/TR/cors/#resource-implementation
-        response.addHeader("Vary", ORIGIN_HEADER);
         if (allowCredentials)
             response.setHeader(ACCESS_CONTROL_ALLOW_CREDENTIALS_HEADER, "true");
         if (!exposedHeaders.isEmpty())
@@ -408,9 +407,6 @@ public class CrossOriginFilter implements Filter
         if (!headersAllowed)
             return;
         response.setHeader(ACCESS_CONTROL_ALLOW_ORIGIN_HEADER, origin);
-        //W3C CORS spec http://www.w3.org/TR/cors/#resource-implementation
-        if (!anyOriginAllowed)
-            response.addHeader("Vary", ORIGIN_HEADER);
         if (allowCredentials)
             response.setHeader(ACCESS_CONTROL_ALLOW_CREDENTIALS_HEADER, "true");
         if (preflightMaxAge > 0)

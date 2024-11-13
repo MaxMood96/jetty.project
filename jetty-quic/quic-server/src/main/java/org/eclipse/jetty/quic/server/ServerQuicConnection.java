@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -62,7 +62,7 @@ public class ServerQuicConnection extends QuicConnection
     {
         ByteBufferPool byteBufferPool = getByteBufferPool();
         // TODO make the token validator configurable
-        QuicheConnection quicheConnection = QuicheConnection.tryAccept(connector.newQuicheConfig(), new SimpleTokenValidator((InetSocketAddress)remoteAddress), cipherBuffer, remoteAddress);
+        QuicheConnection quicheConnection = QuicheConnection.tryAccept(connector.newQuicheConfig(), new SimpleTokenValidator((InetSocketAddress)remoteAddress), cipherBuffer, getEndPoint().getLocalAddress(), remoteAddress);
         if (quicheConnection == null)
         {
             ByteBuffer negotiationBuffer = byteBufferPool.acquire(getOutputBufferSize(), true);

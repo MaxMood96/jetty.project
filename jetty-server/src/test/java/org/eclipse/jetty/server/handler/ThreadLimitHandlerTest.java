@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -30,11 +30,13 @@ import org.eclipse.jetty.server.NetworkConnector;
 import org.eclipse.jetty.server.Request;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.ServerConnector;
+import org.eclipse.jetty.util.NanoTime;
 import org.hamcrest.Matchers;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import static org.awaitility.Awaitility.await;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.is;
 
@@ -83,7 +85,9 @@ public class ThreadLimitHandlerTest
                 response.setStatus(HttpStatus.OK_200);
             }
         });
-        _server.setHandler(handler);
+        ContextHandler contextHandler = new ContextHandler("/");
+        contextHandler.setHandler(handler);
+        _server.setHandler(contextHandler);
         _server.start();
 
         last.set(null);
@@ -97,6 +101,8 @@ public class ThreadLimitHandlerTest
         last.set(null);
         _local.getResponse("GET / HTTP/1.0\r\nForwarded: for=1.2.3.4\r\n\r\n");
         assertThat(last.get(), Matchers.is("0.0.0.0"));
+
+        await().atMost(5, TimeUnit.SECONDS).until(handler::getRemoteCount, is(0));
     }
 
     @Test
@@ -112,7 +118,9 @@ public class ThreadLimitHandlerTest
                 return super.getThreadLimit(ip);
             }
         };
-        _server.setHandler(handler);
+        ContextHandler contextHandler = new ContextHandler("/");
+        contextHandler.setHandler(handler);
+        _server.setHandler(contextHandler);
         _server.start();
 
         last.set(null);
@@ -130,6 +138,8 @@ public class ThreadLimitHandlerTest
         last.set(null);
         _local.getResponse("GET / HTTP/1.0\r\nX-Forwarded-For: 1.1.1.1\r\nX-Forwarded-For: 6.6.6.6,1.2.3.4\r\nForwarded: for=1.2.3.4\r\n\r\n");
         assertThat(last.get(), Matchers.is("1.2.3.4"));
+
+        await().atMost(5, TimeUnit.SECONDS).until(handler::getRemoteCount, is(0));
     }
 
     @Test
@@ -145,7 +155,9 @@ public class ThreadLimitHandlerTest
                 return super.getThreadLimit(ip);
             }
         };
-        _server.setHandler(handler);
+        ContextHandler contextHandler = new ContextHandler("/");
+        contextHandler.setHandler(handler);
+        _server.setHandler(contextHandler);
         _server.start();
 
         last.set(null);
@@ -163,6 +175,8 @@ public class ThreadLimitHandlerTest
         last.set(null);
         _local.getResponse("GET / HTTP/1.0\r\nX-Forwarded-For: 1.1.1.1\r\nForwarded: for=6.6.6.6; for=1.2.3.4\r\nX-Forwarded-For: 6.6.6.6\r\nForwarded: proto=https\r\n\r\n");
         assertThat(last.get(), Matchers.is("1.2.3.4"));
+
+        await().atMost(5, TimeUnit.SECONDS).until(handler::getRemoteCount, is(0));
     }
 
     @Test
@@ -201,7 +215,9 @@ public class ThreadLimitHandlerTest
                 }
             }
         });
-        _server.setHandler(handler);
+        ContextHandler contextHandler = new ContextHandler("/");
+        contextHandler.setHandler(handler);
+        _server.setHandler(contextHandler);
         _server.start();
 
         Socket[] client = new Socket[10];
@@ -212,8 +228,9 @@ public class ThreadLimitHandlerTest
             client[i].getOutputStream().flush();
         }
 
-        long wait = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
-        while (count.get() < 4 && System.nanoTime() < wait)
+        long wait = 10;
+        long start = NanoTime.now();
+        while (count.get() < 4 && NanoTime.secondsSince(start) < wait)
         {
             Thread.sleep(1);
         }
@@ -225,16 +242,18 @@ public class ThreadLimitHandlerTest
         // let the other requests go
         latch.countDown();
 
-        while (total.get() < 10 && System.nanoTime() < wait)
+        while (total.get() < 10 && NanoTime.secondsSince(start) < wait)
         {
             Thread.sleep(10);
         }
         assertThat(total.get(), is(10));
 
-        while (count.get() > 0 && System.nanoTime() < wait)
+        while (count.get() > 0 && NanoTime.secondsSince(start) < wait)
         {
             Thread.sleep(10);
         }
         assertThat(count.get(), is(0));
+
+        await().atMost(5, TimeUnit.SECONDS).until(handler::getRemoteCount, is(0));
     }
 }

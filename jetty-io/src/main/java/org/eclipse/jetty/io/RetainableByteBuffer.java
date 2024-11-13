@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -19,6 +19,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 
 import org.eclipse.jetty.util.BufferUtil;
+import org.eclipse.jetty.util.NanoTime;
 import org.eclipse.jetty.util.Retainable;
 
 /**
@@ -37,10 +38,10 @@ public class RetainableByteBuffer implements Retainable
 {
     private final ByteBuffer buffer;
     private final AtomicInteger references = new AtomicInteger();
-    private final Consumer<ByteBuffer> releaser;
-    private final AtomicLong lastUpdate = new AtomicLong(System.nanoTime());
+    private final Consumer<RetainableByteBuffer> releaser;
+    private final AtomicLong lastUpdate = new AtomicLong(NanoTime.now());
 
-    RetainableByteBuffer(ByteBuffer buffer, Consumer<ByteBuffer> releaser)
+    RetainableByteBuffer(ByteBuffer buffer, Consumer<RetainableByteBuffer> releaser)
     {
         this.releaser = releaser;
         this.buffer = buffer;
@@ -81,7 +82,7 @@ public class RetainableByteBuffer implements Retainable
      * The reason why this method exists on top of {@link #retain()} is to be able to
      * have some safety checks that must know why the ref counter is being incremented.
      */
-    void acquire()
+    protected void acquire()
     {
         if (references.getAndUpdate(c -> c == 0 ? 1 : c) != 0)
             throw new IllegalStateException("re-pooled while still used " + this);
@@ -111,8 +112,8 @@ public class RetainableByteBuffer implements Retainable
         });
         if (ref == 0)
         {
-            lastUpdate.setOpaque(System.nanoTime());
-            releaser.accept(buffer);
+            lastUpdate.setOpaque(NanoTime.now());
+            releaser.accept(this);
             return true;
         }
         return false;

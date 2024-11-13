@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -40,6 +40,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -750,5 +751,80 @@ public class URIUtilTest
         // check decode to original
         String decoded = URIUtil.decodePath(encoded);
         assertEquals(path, decoded);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+        "a",
+        "deadbeef",
+        "321zzz123",
+        "pct%25encoded",
+        "a,b,c",
+        "*",
+        "_-_-_",
+        "192.168.1.22",
+        "192.168.1.com"
+    })
+    public void testIsValidHostRegisteredNameTrue(String token)
+    {
+        assertTrue(URIUtil.isValidHostRegisteredName(token), "Token [" + token + "] should be a valid reg-name");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+        " ",
+        "tab\tchar",
+        "a long name with spaces",
+        "8-bit-\u00dd", // 8-bit characters
+        "пример.рф", // unicode - raw IDN (not normalized to punycode)
+        // Invalid pct-encoding
+        "%XX",
+        "%%",
+        "abc%d",
+        "100%",
+        "[brackets]"
+    })
+    public void testIsValidHostRegisteredNameFalse(String token)
+    {
+        assertFalse(URIUtil.isValidHostRegisteredName(token), "Token [" + token + "] should be an invalid reg-name");
+    }
+
+    public static Stream<Arguments> appendSchemeHostPortCases()
+    {
+        return Stream.of(
+            // Default behaviors of stripping a port number based on scheme
+            Arguments.of("http", "example.org", 80, "http://example.org"),
+            Arguments.of("https", "example.org", 443, "https://example.org"),
+            Arguments.of("ws", "example.org", 80, "ws://example.org"),
+            Arguments.of("wss", "example.org", 443, "wss://example.org"),
+            // Mismatches between scheme and port
+            Arguments.of("http", "example.org", 443, "http://example.org:443"),
+            Arguments.of("https", "example.org", 80, "https://example.org:80"),
+            Arguments.of("ws", "example.org", 443, "ws://example.org:443"),
+            Arguments.of("wss", "example.org", 80, "wss://example.org:80"),
+            // Odd ports
+            Arguments.of("http", "example.org", 12345, "http://example.org:12345"),
+            Arguments.of("https", "example.org", 54321, "https://example.org:54321"),
+            Arguments.of("ws", "example.org", 6666, "ws://example.org:6666"),
+            Arguments.of("wss", "example.org", 7777, "wss://example.org:7777")
+        );
+    }
+
+    @ParameterizedTest
+    @MethodSource("appendSchemeHostPortCases")
+    public void testAppendSchemeHostPortBuilder(String scheme, String server, int port, String expectedStr)
+    {
+        StringBuilder actual = new StringBuilder();
+        URIUtil.appendSchemeHostPort(actual, scheme, server, port);
+        assertEquals(expectedStr, actual.toString());
+    }
+
+    @ParameterizedTest
+    @MethodSource("appendSchemeHostPortCases")
+    public void testAppendSchemeHostPortBuffer(String scheme, String server, int port, String expectedStr)
+    {
+        StringBuffer actual = new StringBuffer();
+        URIUtil.appendSchemeHostPort(actual, scheme, server, port);
+        assertEquals(expectedStr, actual.toString());
     }
 }

@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -23,9 +23,11 @@ import org.eclipse.jetty.http3.frames.DataFrame;
 import org.eclipse.jetty.http3.internal.generator.MessageGenerator;
 import org.eclipse.jetty.http3.internal.parser.MessageParser;
 import org.eclipse.jetty.http3.internal.parser.ParserListener;
+import org.eclipse.jetty.http3.qpack.QpackDecoder;
 import org.eclipse.jetty.io.ByteBufferPool;
 import org.eclipse.jetty.io.NullByteBufferPool;
 import org.eclipse.jetty.util.BufferUtil;
+import org.eclipse.jetty.util.NanoTime;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -55,9 +57,11 @@ public class DataGenerateParseTest
         DataFrame input = new DataFrame(ByteBuffer.wrap(inputBytes), true);
 
         ByteBufferPool.Lease lease = new ByteBufferPool.Lease(new NullByteBufferPool());
-        new MessageGenerator(null, 8192, true).generate(lease, 0, input, null);
+        new MessageGenerator(null, true).generate(lease, 0, input, null);
 
         List<DataFrame> frames = new ArrayList<>();
+        QpackDecoder decoder = new QpackDecoder(instructions -> {});
+        decoder.setBeginNanoTimeSupplier(NanoTime::now);
         MessageParser parser = new MessageParser(new ParserListener()
         {
             @Override
@@ -65,7 +69,7 @@ public class DataGenerateParseTest
             {
                 frames.add(frame);
             }
-        }, null, 13, () -> true);
+        }, decoder, 13, () -> true);
         parser.init(UnaryOperator.identity());
         for (ByteBuffer buffer : lease.getByteBuffers())
         {

@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -44,6 +44,7 @@ import org.eclipse.jetty.server.Handler;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.ServerConnector;
 import org.eclipse.jetty.util.IO;
+import org.eclipse.jetty.util.NanoTime;
 import org.eclipse.jetty.util.Promise;
 import org.eclipse.jetty.util.SocketAddressResolver;
 import org.eclipse.jetty.util.thread.QueuedThreadPool;
@@ -186,13 +187,12 @@ public class ConnectionPoolTest
 
     private void run(CountDownLatch latch, int iterations, List<Throwable> failures)
     {
-        long begin = System.nanoTime();
+        long begin = NanoTime.now();
         for (int i = 0; i < iterations; ++i)
         {
             test(failures);
         }
-        long end = System.nanoTime();
-        long elapsed = TimeUnit.NANOSECONDS.toMillis(end - begin);
+        long elapsed = NanoTime.millisSince(begin);
         System.err.printf("%d requests in %d ms, %.3f req/s%n", iterations, elapsed, elapsed > 0 ? iterations * 1000D / elapsed : -1D);
         latch.countDown();
     }
@@ -379,7 +379,7 @@ public class ConnectionPoolTest
     @MethodSource("pools")
     public void testConcurrentRequestsAllBlockedOnServerWithLargeConnectionPool(ConnectionPoolFactory factory) throws Exception
     {
-        int count = 50;
+        int count = 10;
         testConcurrentRequestsAllBlockedOnServer(factory, count, 2 * count);
     }
 
@@ -387,7 +387,7 @@ public class ConnectionPoolTest
     @MethodSource("pools")
     public void testConcurrentRequestsAllBlockedOnServerWithExactConnectionPool(ConnectionPoolFactory factory) throws Exception
     {
-        int count = 50;
+        int count = 10;
         testConcurrentRequestsAllBlockedOnServer(factory, count, count);
     }
 
@@ -441,10 +441,12 @@ public class ConnectionPoolTest
                 {
                     if (result.isSucceeded())
                         latch.countDown();
+                    else
+                        result.getFailure().printStackTrace();
                 }));
         }
 
-        assertTrue(latch.await(5, TimeUnit.SECONDS), "server requests " + barrier.getNumberWaiting() + "<" + count + " - client: " + client.dump());
+        assertTrue(latch.await(15, TimeUnit.SECONDS), "server requests " + barrier.getNumberWaiting() + "<" + count + " - client: " + client.dump());
         List<Destination> destinations = client.getDestinations();
         assertEquals(1, destinations.size());
         // The max duration connection pool aggressively closes expired connections upon release, which interferes with this assertion.

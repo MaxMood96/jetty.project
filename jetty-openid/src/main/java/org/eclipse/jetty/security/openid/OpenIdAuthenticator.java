@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -68,6 +68,7 @@ public class OpenIdAuthenticator extends LoginAuthenticator
     public static final String RESPONSE = "org.eclipse.jetty.security.openid.response";
     public static final String ISSUER = "org.eclipse.jetty.security.openid.issuer";
     public static final String REDIRECT_PATH = "org.eclipse.jetty.security.openid.redirect_path";
+    public static final String LOGOUT_REDIRECT_PATH = "org.eclipse.jetty.security.openid.logout_redirect_path";
     public static final String ERROR_PAGE = "org.eclipse.jetty.security.openid.error_page";
     public static final String J_URI = "org.eclipse.jetty.security.openid.URI";
     public static final String J_POST = "org.eclipse.jetty.security.openid.POST";
@@ -82,6 +83,7 @@ public class OpenIdAuthenticator extends LoginAuthenticator
     private final SecureRandom _secureRandom = new SecureRandom();
     private OpenIdConfiguration _openIdConfiguration;
     private String _redirectPath;
+    private String _logoutRedirectPath;
     private String _errorPage;
     private String _errorPath;
     private String _errorQuery;
@@ -104,10 +106,17 @@ public class OpenIdAuthenticator extends LoginAuthenticator
 
     public OpenIdAuthenticator(OpenIdConfiguration configuration, String redirectPath, String errorPage)
     {
+        this(configuration, redirectPath, errorPage, null);
+    }
+    
+    public OpenIdAuthenticator(OpenIdConfiguration configuration, String redirectPath, String errorPage, String logoutRedirectPath)
+    {
         _openIdConfiguration = configuration;
         setRedirectPath(redirectPath);
         if (errorPage != null)
             setErrorPage(errorPage);
+        if (logoutRedirectPath != null)
+            setLogoutRedirectPath(logoutRedirectPath);
     }
 
     @Override
@@ -123,11 +132,15 @@ public class OpenIdAuthenticator extends LoginAuthenticator
 
         String redirectPath = authConfig.getInitParameter(REDIRECT_PATH);
         if (redirectPath != null)
-            _redirectPath = redirectPath;
+            setRedirectPath(redirectPath);
 
         String error = authConfig.getInitParameter(ERROR_PAGE);
         if (error != null)
             setErrorPage(error);
+        
+        String logout = authConfig.getInitParameter(LOGOUT_REDIRECT_PATH);
+        if (logout != null)
+            setLogoutRedirectPath(logout);
 
         super.setConfiguration(new OpenIdAuthConfiguration(_openIdConfiguration, authConfig));
     }
@@ -164,6 +177,22 @@ public class OpenIdAuthenticator extends LoginAuthenticator
         }
 
         _redirectPath = redirectPath;
+    }
+
+    public void setLogoutRedirectPath(String logoutRedirectPath)
+    {
+        if (logoutRedirectPath == null)
+        {
+            LOG.warn("redirect path must not be null, defaulting to /");
+            logoutRedirectPath = "/";
+        }
+        else if (!logoutRedirectPath.startsWith("/"))
+        {
+            LOG.warn("redirect path must start with /");
+            logoutRedirectPath = "/" + logoutRedirectPath;
+        }
+
+        _logoutRedirectPath = logoutRedirectPath;
     }
 
     public void setErrorPage(String path)
@@ -218,6 +247,12 @@ public class OpenIdAuthenticator extends LoginAuthenticator
     @Override
     public void logout(ServletRequest request)
     {
+        attemptLogoutRedirect(request);
+        logoutWithoutRedirect(request);
+    }
+
+    private void logoutWithoutRedirect(ServletRequest request)
+    {
         super.logout(request);
         HttpServletRequest httpRequest = (HttpServletRequest)request;
         HttpSession session = httpRequest.getSession(false);
@@ -230,6 +265,64 @@ public class OpenIdAuthenticator extends LoginAuthenticator
             session.removeAttribute(SessionAuthentication.__J_AUTHENTICATED);
             session.removeAttribute(CLAIMS);
             session.removeAttribute(RESPONSE);
+            session.removeAttribute(ISSUER);
+        }
+    }
+
+    /**
+     * <p>This will attempt to redirect the request to the end_session_endpoint, and finally to the {@link #REDIRECT_PATH}.</p>
+     *
+     * <p>If end_session_endpoint is defined the request will be redirected to the end_session_endpoint, the optional
+     * post_logout_redirect_uri parameter will be set if {@link #REDIRECT_PATH} is non-null.</p>
+     *
+     * <p>If the end_session_endpoint is not defined then the request will be redirected to {@link #REDIRECT_PATH} if it is a
+     * non-null value, otherwise no redirection will be done.</p>
+     *
+     * @param request the request to redirect.
+     */
+    private void attemptLogoutRedirect(ServletRequest request)
+    {
+        try
+        {
+            Request baseRequest = Objects.requireNonNull(Request.getBaseRequest(request));
+            Response baseResponse = baseRequest.getResponse();
+            String endSessionEndpoint = _openIdConfiguration.getEndSessionEndpoint();
+            String redirectUri = null;
+            if (_logoutRedirectPath != null)
+            {
+                StringBuilder sb = new StringBuilder(128);
+                URIUtil.appendSchemeHostPort(sb, request.getScheme(), request.getServerName(), request.getServerPort());
+                sb.append(baseRequest.getContextPath());
+                sb.append(_logoutRedirectPath);
+                redirectUri = sb.toString();
+            }
+
+            HttpSession session = baseRequest.getSession(false);
+            if (endSessionEndpoint == null || session == null)
+            {
+                if (redirectUri != null)
+                    baseResponse.sendRedirect(redirectUri, true);
+                return;
+            }
+
+            Object openIdResponse = session.getAttribute(OpenIdAuthenticator.RESPONSE);
+            if (!(openIdResponse instanceof Map))
+            {
+                if (redirectUri != null)
+                    baseResponse.sendRedirect(redirectUri, true);
+                return;
+            }
+
+            @SuppressWarnings("rawtypes")
+            String idToken = (String)((Map)openIdResponse).get("id_token");
+            baseResponse.sendRedirect(endSessionEndpoint +
+                    "?id_token_hint=" + UrlEncoded.encodeString(idToken, StandardCharsets.UTF_8) +
+                    ((redirectUri == null) ? "" : "&post_logout_redirect_uri=" + UrlEncoded.encodeString(redirectUri, StandardCharsets.UTF_8)),
+                true);
+        }
+        catch (Throwable t)
+        {
+            LOG.warn("failed to redirect to end_session_endpoint", t);
         }
     }
 
@@ -278,6 +371,17 @@ public class OpenIdAuthenticator extends LoginAuthenticator
         baseRequest.setMethod(method);
     }
 
+    private boolean hasExpiredIdToken(HttpSession session)
+    {
+        if (session != null)
+        {
+            Map<String, Object> claims = (Map)session.getAttribute(CLAIMS);
+            if (claims != null)
+                return OpenIdCredentials.checkExpiry(claims);
+        }
+        return false;
+    }
+
     @Override
     public Authentication validateRequest(ServletRequest req, ServletResponse res, boolean mandatory) throws ServerAuthException
     {
@@ -293,6 +397,17 @@ public class OpenIdAuthenticator extends LoginAuthenticator
         if (uri == null)
             uri = URIUtil.SLASH;
 
+        HttpSession session = request.getSession(false);
+        if (_openIdConfiguration.isLogoutWhenIdTokenIsExpired() && hasExpiredIdToken(session))
+        {
+            // After logout, fall through to the code below and send another login challenge.
+            logoutWithoutRedirect(request);
+
+            // If we expired a valid authentication we do not want to defer authentication,
+            // we want to try re-authenticate the user.
+            mandatory = true;
+        }
+
         mandatory |= isJSecurityCheck(uri);
         if (!mandatory)
             return new DeferredAuthentication(this);
@@ -303,7 +418,9 @@ public class OpenIdAuthenticator extends LoginAuthenticator
         try
         {
             // Get the Session.
-            HttpSession session = request.getSession();
+            if (session == null)
+                session = request.getSession(true);
+
             if (request.isRequestedSessionIdFromURL())
             {
                 sendError(request, response, "Session ID must be a cookie to support OpenID authentication");
@@ -376,10 +493,7 @@ public class OpenIdAuthenticator extends LoginAuthenticator
                 {
                     if (LOG.isDebugEnabled())
                         LOG.debug("auth revoked {}", authentication);
-                    synchronized (session)
-                    {
-                        session.removeAttribute(SessionAuthentication.__J_AUTHENTICATED);
-                    }
+                    logoutWithoutRedirect(request);
                 }
                 else
                 {
@@ -411,10 +525,10 @@ public class OpenIdAuthenticator extends LoginAuthenticator
                             }
                         }
                     }
+                    if (LOG.isDebugEnabled())
+                        LOG.debug("auth {}", authentication);
+                    return authentication;
                 }
-                if (LOG.isDebugEnabled())
-                    LOG.debug("auth {}", authentication);
-                return authentication;
             }
 
             // If we can't send challenge.
@@ -425,12 +539,11 @@ public class OpenIdAuthenticator extends LoginAuthenticator
                 return Authentication.UNAUTHENTICATED;
             }
 
-            // Send the the challenge.
+            // Send the challenge.
             String challengeUri = getChallengeUri(baseRequest);
             if (LOG.isDebugEnabled())
                 LOG.debug("challenge {}->{}", session.getId(), challengeUri);
             baseResponse.sendRedirect(challengeUri, true);
-
             return Authentication.SEND_CONTINUE;
         }
         catch (IOException e)

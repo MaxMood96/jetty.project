@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -13,9 +13,10 @@
 
 package org.eclipse.jetty.util.statistic;
 
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.LongAdder;
+
+import org.eclipse.jetty.util.NanoTime;
 
 /**
  * Counts the rate that {@link Long}s are added to this from the time of creation or the last call to {@link #reset()}.
@@ -23,7 +24,7 @@ import java.util.concurrent.atomic.LongAdder;
 public class RateCounter
 {
     private final LongAdder _total = new LongAdder();
-    private final AtomicLong _timeStamp = new AtomicLong(System.nanoTime());
+    private final AtomicLong _nanoTime = new AtomicLong(NanoTime.now());
 
     public void add(long l)
     {
@@ -32,13 +33,13 @@ public class RateCounter
 
     public long getRate()
     {
-        long elapsed = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - _timeStamp.get());
+        long elapsed = NanoTime.millisSince(_nanoTime.get());
         return elapsed == 0 ? 0 : _total.sum() * 1000 / elapsed;
     }
 
     public void reset()
     {
-        _timeStamp.getAndSet(System.nanoTime());
+        _nanoTime.set(NanoTime.now());
         _total.reset();
     }
 }

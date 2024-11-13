@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -58,7 +58,7 @@ public class ResetBodyParser extends BodyParser
                 {
                     if (buffer.remaining() >= 4)
                     {
-                        return onReset(buffer.getInt());
+                        return onReset(buffer, buffer.getInt());
                     }
                     else
                     {
@@ -73,7 +73,7 @@ public class ResetBodyParser extends BodyParser
                     --cursor;
                     error += currByte << (8 * cursor);
                     if (cursor == 0)
-                        return onReset(error);
+                        return onReset(buffer, error);
                     break;
                 }
                 default:
@@ -85,9 +85,11 @@ public class ResetBodyParser extends BodyParser
         return false;
     }
 
-    private boolean onReset(int error)
+    private boolean onReset(ByteBuffer buffer, int error)
     {
         ResetFrame frame = new ResetFrame(getStreamId(), error);
+        if (!rateControlOnEvent(frame))
+            return connectionFailure(buffer, ErrorCode.ENHANCE_YOUR_CALM_ERROR.code, "invalid_rst_stream_frame_rate");
         reset();
         notifyReset(frame);
         return true;

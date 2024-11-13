@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -16,7 +16,6 @@ package org.eclipse.jetty.http2.frames;
 import java.nio.ByteBuffer;
 import java.time.Duration;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.function.UnaryOperator;
 
 import org.eclipse.jetty.http.HttpVersion;
 import org.eclipse.jetty.http.MetaData;
@@ -90,9 +89,17 @@ public class FrameFloodTest
     }
 
     @Test
-    public void testSettingsFrameFlood()
+    public void testEmptySettingsFrameFlood()
     {
         byte[] payload = new byte[0];
+        testFrameFlood(null, frameFrom(payload.length, FrameType.SETTINGS.getType(), 0, 0, payload));
+    }
+
+    @Test
+    public void testSettingsFrameFlood()
+    {
+        // | Key0 | Key1 | Value0 | Value1 | Value2 | Value3 |
+        byte[] payload = new byte[]{0, 8, 0, 0, 0, 1};
         testFrameFlood(null, frameFrom(payload.length, FrameType.SETTINGS.getType(), 0, 0, payload));
     }
 
@@ -102,15 +109,32 @@ public class FrameFloodTest
         byte[] payload = {0, 0, 0, 0, 0, 0, 0, 0};
         testFrameFlood(null, frameFrom(payload.length, FrameType.PING.getType(), 0, 0, payload));
     }
-    
+
     @Test
-    public void testContinuationFrameFlood()
+    public void testEmptyContinuationFrameFlood()
     {
         int streamId = 13;
         byte[] headersPayload = new byte[0];
         byte[] headersBytes = frameFrom(headersPayload.length, FrameType.HEADERS.getType(), 0, streamId, headersPayload);
         byte[] continuationPayload = new byte[0];
         testFrameFlood(headersBytes, frameFrom(continuationPayload.length, FrameType.CONTINUATION.getType(), 0, streamId, continuationPayload));
+    }
+
+    @Test
+    public void testContinuationFrameFlood()
+    {
+        int streamId = 13;
+        byte[] headersPayload = new byte[0];
+        byte[] headersBytes = frameFrom(headersPayload.length, FrameType.HEADERS.getType(), 0, streamId, headersPayload);
+        byte[] continuationPayload = new byte[1];
+        testFrameFlood(headersBytes, frameFrom(continuationPayload.length, FrameType.CONTINUATION.getType(), 0, streamId, continuationPayload));
+    }
+
+    @Test
+    public void testResetStreamFrameFlood()
+    {
+        byte[] payload = {0, 0, 0, 0};
+        testFrameFlood(null, frameFrom(payload.length, FrameType.RST_STREAM.getType(), 0, 13, payload));
     }
 
     @Test
@@ -123,15 +147,15 @@ public class FrameFloodTest
     private void testFrameFlood(byte[] preamble, byte[] bytes)
     {
         AtomicBoolean failed = new AtomicBoolean();
-        Parser parser = new Parser(byteBufferPool, new Parser.Listener.Adapter()
+        Parser parser = new Parser(byteBufferPool, 8192, new WindowRateControl(8, Duration.ofSeconds(1)));
+        parser.init(new Parser.Listener.Adapter()
         {
             @Override
             public void onConnectionFailure(int error, String reason)
             {
                 failed.set(true);
             }
-        }, 4096, 8192, new WindowRateControl(8, Duration.ofSeconds(1)));
-        parser.init(UnaryOperator.identity());
+        });
 
         if (preamble != null)
         {

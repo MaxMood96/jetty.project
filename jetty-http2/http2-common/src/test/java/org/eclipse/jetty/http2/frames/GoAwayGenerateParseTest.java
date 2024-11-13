@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -17,7 +17,6 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
-import java.util.function.UnaryOperator;
 
 import org.eclipse.jetty.http2.generator.GoAwayGenerator;
 import org.eclipse.jetty.http2.generator.HeaderGenerator;
@@ -40,15 +39,15 @@ public class GoAwayGenerateParseTest
         GoAwayGenerator generator = new GoAwayGenerator(new HeaderGenerator());
 
         final List<GoAwayFrame> frames = new ArrayList<>();
-        Parser parser = new Parser(byteBufferPool, new Parser.Listener.Adapter()
+        Parser parser = new Parser(byteBufferPool, 8192);
+        parser.init(new Parser.Listener.Adapter()
         {
             @Override
             public void onGoAway(GoAwayFrame frame)
             {
                 frames.add(frame);
             }
-        }, 4096, 8192);
-        parser.init(UnaryOperator.identity());
+        });
 
         int lastStreamId = 13;
         int error = 17;
@@ -82,15 +81,15 @@ public class GoAwayGenerateParseTest
         GoAwayGenerator generator = new GoAwayGenerator(new HeaderGenerator());
 
         final List<GoAwayFrame> frames = new ArrayList<>();
-        Parser parser = new Parser(byteBufferPool, new Parser.Listener.Adapter()
+        Parser parser = new Parser(byteBufferPool, 8192);
+        parser.init(new Parser.Listener.Adapter()
         {
             @Override
             public void onGoAway(GoAwayFrame frame)
             {
                 frames.add(frame);
             }
-        }, 4096, 8192);
-        parser.init(UnaryOperator.identity());
+        });
 
         int lastStreamId = 13;
         int error = 17;

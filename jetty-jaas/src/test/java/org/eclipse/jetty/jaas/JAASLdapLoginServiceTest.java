@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -24,26 +24,26 @@ import org.apache.directory.server.annotations.CreateTransport;
 import org.apache.directory.server.core.annotations.ApplyLdifs;
 import org.apache.directory.server.core.annotations.CreateDS;
 import org.apache.directory.server.core.annotations.CreatePartition;
-import org.apache.directory.server.core.integ.FrameworkRunner;
-import org.apache.directory.server.ldap.LdapServer;
+import org.apache.directory.server.core.integ.AbstractLdapTestUnit;
+import org.apache.directory.server.core.integ.ApacheDSTestExtension;
 import org.eclipse.jetty.jaas.spi.LdapLoginModule;
 import org.eclipse.jetty.security.DefaultIdentityService;
 import org.eclipse.jetty.server.Request;
 import org.eclipse.jetty.server.UserIdentity;
-import org.junit.Test;
-import org.junit.runner.RunWith;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * JAASLdapLoginServiceTest
  */
-@RunWith(FrameworkRunner.class)
+@ExtendWith(ApacheDSTestExtension.class)
 @CreateLdapServer(transports = {@CreateTransport(protocol = "LDAP")})
-@CreateDS(allowAnonAccess = false, partitions = {
+@CreateDS(name = "JAASLdapLoginServiceTest-class", partitions = {
     @CreatePartition(name = "Users Partition", suffix = "ou=people,dc=jetty,dc=org"),
     @CreatePartition(name = "Groups Partition", suffix = "ou=groups,dc=jetty,dc=org")
 })
@@ -113,10 +113,8 @@ import static org.junit.Assert.assertTrue;
     "uniquemember: uid=uniqueuser,ou=subdir,ou=people,dc=jetty,dc=org",
     "cn: admin"
 })
-public class JAASLdapLoginServiceTest
+public class JAASLdapLoginServiceTest extends AbstractLdapTestUnit
 {
-    private static LdapServer _ldapServer;
-
     private JAASLoginService jaasLoginService(String name)
     {
         JAASLoginService ls = new JAASLoginService("foo");
@@ -133,16 +131,6 @@ public class JAASLdapLoginServiceTest
         return ls.login(username, password, request);
     }
 
-    public static LdapServer getLdapServer()
-    {
-        return _ldapServer;
-    }
-
-    public static void setLdapServer(LdapServer ldapServer)
-    {
-        _ldapServer = ldapServer;
-    }
-
     public static class TestConfiguration extends Configuration
     {
         private boolean forceBindingLogin;
@@ -157,7 +145,7 @@ public class JAASLdapLoginServiceTest
         {
             Map<String, String> options = new HashMap<>();
             options.put("hostname", "localhost");
-            options.put("port", Integer.toString(_ldapServer.getTransports()[0].getPort()));
+            options.put("port", Integer.toString(ldapServer.getTransports()[0].getPort()));
             options.put("contextFactory", "com.sun.jndi.ldap.LdapCtxFactory");
             options.put("bindDn", "uid=admin,ou=system");
             options.put("bindPassword", "secret");

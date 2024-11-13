@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -54,8 +54,10 @@ import org.eclipse.jetty.http.BadMessageException;
 import org.eclipse.jetty.http.CookieCompliance;
 import org.eclipse.jetty.http.HttpCompliance;
 import org.eclipse.jetty.http.HttpCookie;
+import org.eclipse.jetty.http.HttpField;
 import org.eclipse.jetty.http.HttpFields;
 import org.eclipse.jetty.http.HttpHeader;
+import org.eclipse.jetty.http.HttpStatus;
 import org.eclipse.jetty.http.HttpTester;
 import org.eclipse.jetty.http.HttpURI;
 import org.eclipse.jetty.http.HttpVersion;
@@ -79,11 +81,14 @@ import org.eclipse.jetty.toolchain.test.jupiter.WorkDir;
 import org.eclipse.jetty.toolchain.test.jupiter.WorkDirExtension;
 import org.eclipse.jetty.util.BufferUtil;
 import org.eclipse.jetty.util.IO;
+import org.eclipse.jetty.util.NanoTime;
 import org.hamcrest.Matchers;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -149,6 +154,7 @@ public class RequestTest
         http.getHttpConfiguration().setResponseHeaderSize(512);
         http.getHttpConfiguration().setOutputBufferSize(2048);
         http.getHttpConfiguration().addCustomizer(new ForwardedRequestCustomizer());
+        http.getHttpConfiguration().setRequestCookieCompliance(CookieCompliance.RFC6265_LEGACY);
         _connector = new LocalConnector(_server, http);
         _server.addConnector(_connector);
         _connector.setIdleTimeout(500);
@@ -780,8 +786,16 @@ public class RequestTest
         assertThat(responses, startsWith("HTTP/1.1 200"));
     }
 
-    @Test
-    public void testInvalidHostHeader() throws Exception
+    @ParameterizedTest
+    @ValueSource(strings = {
+        "Host: whatever.com:xxxx", // invalid port
+        "Host: myhost:testBadPort", // invalid port
+        "Host: a b c d", // spaces
+        "Host: a\to\tz", // control characters
+        "Host: hosta, hostb, hostc", // spaces (commas are ok)
+        "Host: hosta\nHost: hostb\nHost: hostc" // multi-line
+    })
+    public void testInvalidHostHeader(String hostline) throws Exception
     {
         // Use a contextHandler with vhosts to force call to Request.getServerName()
         ContextHandler context = new ContextHandler();
@@ -792,7 +806,7 @@ public class RequestTest
 
         // Request with illegal Host header
         String request = "GET / HTTP/1.1\n" +
-            "Host: whatever.com:xxxx\n" +
+            hostline + "\n" +
             "Content-Type: text/html;charset=utf8\n" +
             "Connection: close\n" +
             "\n";
@@ -855,6 +869,52 @@ public class RequestTest
     }
 
     @Test
+    public void testConnectRequestURLSameAsHost() throws Exception
+    {
+        final AtomicReference<String> resultRequestURL = new AtomicReference<>();
+        final AtomicReference<String> resultRequestURI = new AtomicReference<>();
+        _handler._checker = (request, response) ->
+        {
+            resultRequestURL.set(request.getRequestURL().toString());
+            resultRequestURI.set(request.getRequestURI());
+            return true;
+        };
+
+        String rawResponse = _connector.getResponse(
+            "CONNECT myhost:9999 HTTP/1.1\n" +
+                "Host: myhost:9999\n" +
+                "Connection: close\n" +
+                "\n");
+        HttpTester.Response response = HttpTester.parseResponse(rawResponse);
+        assertThat(response.getStatus(), is(HttpStatus.OK_200));
+        assertThat("request.getRequestURL", resultRequestURL.get(), is("http://myhost:9999/"));
+        assertThat("request.getRequestURI", resultRequestURI.get(), is("/"));
+    }
+
+    @Test
+    public void testConnectRequestURLDifferentThanHost() throws Exception
+    {
+        final AtomicReference<String> resultRequestURL = new AtomicReference<>();
+        final AtomicReference<String> resultRequestURI = new AtomicReference<>();
+        _handler._checker = (request, response) ->
+        {
+            resultRequestURL.set(request.getRequestURL().toString());
+            resultRequestURI.set(request.getRequestURI());
+            return true;
+        };
+
+        String rawResponse = _connector.getResponse(
+            "CONNECT myhost:9999 HTTP/1.1\n" +
+                "Host: otherhost:8888\n" + // per spec, this is ignored if request-target is authority-form
+                "Connection: close\n" +
+                "\n");
+        HttpTester.Response response = HttpTester.parseResponse(rawResponse);
+        assertThat(response.getStatus(), is(HttpStatus.OK_200));
+        assertThat("request.getRequestURL", resultRequestURL.get(), is("http://myhost:9999/"));
+        assertThat("request.getRequestURI", resultRequestURI.get(), is("/"));
+    }
+
+    @Test
     public void testHostPort() throws Exception
     {
         final ArrayList<String> results = new ArrayList<>();
@@ -907,6 +967,15 @@ public class RequestTest
         response = _connector.getResponse(
             "GET http://myhost:8888/ HTTP/1.1\n" +
                 "Host: wrong:666\n" +
+                "Connection: close\n" +
+                "\n");
+        i = 0;
+        assertThat(response, containsString("400 Bad Request"));
+
+        results.clear();
+        response = _connector.getResponse(
+            "GET http://myhost:8888/ HTTP/1.1\n" +
+                "Host: myhost:8888\n" +
                 "Connection: close\n" +
                 "\n");
         i = 0;
@@ -1745,14 +1814,13 @@ public class RequestTest
                 "\r\n" +
                 buf;
 
-            long start = TimeUnit.NANOSECONDS.toMillis(System.nanoTime());
+            long start = NanoTime.now();
             String rawResponse = _connector.getResponse(request);
             HttpTester.Response response = HttpTester.parseResponse(rawResponse);
             assertThat("Response.status", response.getStatus(), is(400));
             assertThat("Response body content", response.getContent(), containsString(BadMessageException.class.getName()));
             assertThat("Response body content", response.getContent(), containsString(IllegalStateException.class.getName()));
-            long now = TimeUnit.NANOSECONDS.toMillis(System.nanoTime());
-            assertTrue((now - start) < 5000);
+            assertTrue(NanoTime.millisSince(start) < 5000);
         }
     }
 
@@ -1784,14 +1852,13 @@ public class RequestTest
                 "\r\n" +
                 buf;
 
-            long start = TimeUnit.NANOSECONDS.toMillis(System.nanoTime());
+            long start = NanoTime.now();
             String rawResponse = _connector.getResponse(request);
             HttpTester.Response response = HttpTester.parseResponse(rawResponse);
             assertThat("Response.status", response.getStatus(), is(400));
             assertThat("Response body content", response.getContent(), containsString(BadMessageException.class.getName()));
             assertThat("Response body content", response.getContent(), containsString(IllegalStateException.class.getName()));
-            long now = TimeUnit.NANOSECONDS.toMillis(System.nanoTime());
-            assertTrue((now - start) < 5000);
+            assertTrue(NanoTime.millisSince(start) < 5000);
         }
     }
 
@@ -1965,6 +2032,8 @@ public class RequestTest
         request.getResponse().getHttpFields().add(new HttpCookie.SetCookieHttpField(new HttpCookie("good", "thumbsup", 100), CookieCompliance.RFC6265));
         request.getResponse().getHttpFields().add(new HttpCookie.SetCookieHttpField(new HttpCookie("bonza", "bewdy", 1), CookieCompliance.RFC6265));
         request.getResponse().getHttpFields().add(new HttpCookie.SetCookieHttpField(new HttpCookie("bad", "thumbsdown", 0), CookieCompliance.RFC6265));
+        request.getResponse().getHttpFields().add(new HttpField(HttpHeader.SET_COOKIE, new HttpCookie("ugly", "duckling", 100).getSetCookie(CookieCompliance.RFC6265)));
+        request.getResponse().getHttpFields().add(new HttpField(HttpHeader.SET_COOKIE, "flow=away; Max-Age=0; Secure; HttpOnly; SameSite=None"));
         HttpFields.Mutable fields = HttpFields.build();
         fields.add(HttpHeader.AUTHORIZATION, "Basic foo");
         request.setMetaData(new MetaData.Request("GET", HttpURI.from(uri), HttpVersion.HTTP_1_0, fields));
@@ -1989,6 +2058,8 @@ public class RequestTest
         assertThat(builder.getHeader("Cookie"), containsString("good"));
         assertThat(builder.getHeader("Cookie"), containsString("maxpos"));
         assertThat(builder.getHeader("Cookie"), not(containsString("bad")));
+        assertThat(builder.getHeader("Cookie"), containsString("ugly"));
+        assertThat(builder.getHeader("Cookie"), not(containsString("flown")));
     }
 
     @Test

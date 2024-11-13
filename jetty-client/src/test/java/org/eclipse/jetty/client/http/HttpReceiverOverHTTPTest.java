@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -230,14 +230,20 @@ public class HttpReceiverOverHTTPTest
                     {
                         return new HttpReceiverOverHTTP(this)
                         {
+                            private boolean once = true;
+
                             @Override
                             protected void fillInterested()
                             {
-                                // Verify that the buffer has been released
-                                // before fillInterested() is called.
-                                assertNull(getResponseBuffer());
-                                // Fill the endpoint so receive is called again.
-                                endPoint.addInput("X");
+                                if (once)
+                                {
+                                    once = false;
+                                    // Verify that the buffer has been released
+                                    // before fillInterested() is called.
+                                    assertNull(getResponseBuffer());
+                                    // Fill the endpoint so receive is called again.
+                                    endPoint.addInput("X");
+                                }
                                 super.fillInterested();
                             }
                         };

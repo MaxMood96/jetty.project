@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -20,8 +20,10 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import org.eclipse.jetty.util.NanoTime;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import static org.hamcrest.MatcherAssert.assertThat;
@@ -157,7 +159,7 @@ public class ReservedThreadExecutorTest
     }
 
     @Test
-    public void testShrink() throws Exception
+    public void testEvict() throws Exception
     {
         final long IDLE = 1000;
 
@@ -181,7 +183,7 @@ public class ReservedThreadExecutorTest
     }
 
     @Test
-    public void testBusyShrink() throws Exception
+    public void testBusyEvict() throws Exception
     {
         final long IDLE = 1000;
 
@@ -231,11 +233,10 @@ public class ReservedThreadExecutorTest
 
     protected void waitForAvailable(int size) throws InterruptedException
     {
-        long started = System.nanoTime();
+        long started = NanoTime.now();
         while (_reservedExecutor.getAvailable() < size)
         {
-            long elapsed = System.nanoTime() - started;
-            if (elapsed > TimeUnit.SECONDS.toNanos(10))
+            if (NanoTime.secondsSince(started) > 10)
                 fail("Took too long");
             Thread.sleep(10);
         }
@@ -290,6 +291,7 @@ public class ReservedThreadExecutorTest
         }
     }
 
+    @Tag("stress")
     @Test
     public void stressTest() throws Exception
     {

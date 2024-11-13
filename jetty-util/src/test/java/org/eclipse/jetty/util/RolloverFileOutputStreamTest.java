@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -36,7 +36,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.is;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 @ExtendWith(WorkDirExtension.class)
 public class RolloverFileOutputStreamTest
@@ -78,7 +81,7 @@ public class RolloverFileOutputStreamTest
     }
 
     /**
-     * <a href="Issue #1507">https://github.com/eclipse/jetty.project/issues/1507</a>
+     * <a href="Issue #1507">https://github.com/jetty/jetty.project/issues/1507</a>
      */
     @Test
     public void testMidnightRolloverCalcPDTIssue1507()
@@ -180,6 +183,26 @@ public class RolloverFileOutputStreamTest
 
         assertSequence(midnight, expected);
     }
+
+    @Test
+    public void testMissingDirectory()
+    {
+
+        String templateString = "missingDir/test-rofos-yyyy_mm_dd.log";
+        Throwable error;
+        try (RolloverFileOutputStream rofos = new RolloverFileOutputStream(templateString))
+        {
+            throw new IllegalStateException();
+        }
+        catch (Throwable  t)
+        {
+            error = t;
+        }
+        assertNotNull(error);
+        assertThat(error, instanceOf(IOException.class));
+        error.getMessage();
+        assertThat(error.getMessage(), containsString("Log directory does not exist."));
+    }        
 
     @Test
     public void testFileHandling() throws Exception

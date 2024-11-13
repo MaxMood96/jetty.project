@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -97,7 +97,7 @@ public class HttpConnection extends AbstractConnection implements Runnable, Http
         _config = config;
         _connector = connector;
         _bufferPool = _connector.getByteBufferPool();
-        _retainableByteBufferPool = RetainableByteBufferPool.findOrAdapt(connector, _bufferPool);
+        _retainableByteBufferPool = _bufferPool.asRetainableByteBufferPool();
         _generator = newHttpGenerator();
         _channel = newHttpChannel();
         _input = _channel.getRequest().getHttpInput();
@@ -105,6 +105,11 @@ public class HttpConnection extends AbstractConnection implements Runnable, Http
         _recordHttpComplianceViolations = recordComplianceViolations;
         if (LOG.isDebugEnabled())
             LOG.debug("New HTTP Connection {}", this);
+    }
+
+    public long getBeginNanoTime()
+    {
+        return _parser.getBeginNanoTime();
     }
 
     public HttpConfiguration getHttpConfiguration()
@@ -370,20 +375,31 @@ public class HttpConnection extends AbstractConnection implements Runnable, Http
                     filled = getEndPoint().fill(requestBuffer);
 
                 if (filled > 0)
+                {
                     bytesIn.add(filled);
-                else if (filled < 0)
-                    _parser.atEOF();
+                }
+                else
+                {
+                    if (filled < 0)
+                        _parser.atEOF();
+                    releaseRequestBuffer();
+                }
 
                 if (LOG.isDebugEnabled())
                     LOG.debug("{} filled {} {}", this, filled, _retainableByteBuffer);
 
                 return filled;
             }
-            catch (IOException e)
+            catch (Throwable x)
             {
                 if (LOG.isDebugEnabled())
-                    LOG.debug("Unable to fill from endpoint {}", getEndPoint(), e);
+                    LOG.debug("Unable to fill from endpoint {}", getEndPoint(), x);
                 _parser.atEOF();
+                if (_retainableByteBuffer != null)
+                {
+                    _retainableByteBuffer.clear();
+                    releaseRequestBuffer();
+                }
                 return -1;
             }
         }

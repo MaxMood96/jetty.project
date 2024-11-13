@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -13,6 +13,7 @@
 
 package org.eclipse.jetty.http2.client.http;
 
+import java.net.SocketAddress;
 import java.nio.channels.AsynchronousCloseException;
 import java.util.Iterator;
 import java.util.List;
@@ -66,6 +67,18 @@ public class HttpConnectionOverHTTP2 extends HttpConnection implements Sweeper.S
     public Session getSession()
     {
         return session;
+    }
+
+    @Override
+    public SocketAddress getLocalSocketAddress()
+    {
+        return session.getLocalSocketAddress();
+    }
+
+    @Override
+    public SocketAddress getRemoteSocketAddress()
+    {
+        return session.getRemoteSocketAddress();
     }
 
     public boolean isRecycleHttpChannels()
@@ -193,11 +206,15 @@ public class HttpConnectionOverHTTP2 extends HttpConnection implements Sweeper.S
         return false;
     }
 
+    void remove()
+    {
+        getHttpDestination().remove(this);
+    }
+
     @Override
     public void close()
     {
         close(new AsynchronousCloseException());
-        destroy();
     }
 
     protected void close(Throwable failure)
@@ -216,6 +233,8 @@ public class HttpConnectionOverHTTP2 extends HttpConnection implements Sweeper.S
                 channel.destroy();
                 channel = idleChannels.poll();
             }
+
+            destroy();
         }
     }
 

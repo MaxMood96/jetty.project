@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -26,6 +26,7 @@ import org.eclipse.jetty.io.CyclicTimeouts;
 import org.eclipse.jetty.quic.common.QuicStreamEndPoint;
 import org.eclipse.jetty.util.Attachable;
 import org.eclipse.jetty.util.Callback;
+import org.eclipse.jetty.util.NanoTime;
 import org.eclipse.jetty.util.Promise;
 import org.eclipse.jetty.util.thread.Invocable;
 import org.slf4j.Logger;
@@ -41,7 +42,7 @@ public abstract class HTTP3Stream implements Stream, CyclicTimeouts.Expirable, A
     private CloseState closeState = CloseState.NOT_CLOSED;
     private FrameState frameState = FrameState.INITIAL;
     private long idleTimeout;
-    private long expireNanoTime;
+    private long expireNanoTime = Long.MAX_VALUE;
     private Object attachment;
 
     public HTTP3Stream(HTTP3Session session, QuicStreamEndPoint endPoint, boolean local)
@@ -109,7 +110,7 @@ public abstract class HTTP3Stream implements Stream, CyclicTimeouts.Expirable, A
     {
         long idleTimeout = getIdleTimeout();
         if (idleTimeout > 0)
-            expireNanoTime = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(idleTimeout);
+            expireNanoTime = NanoTime.now() + TimeUnit.MILLISECONDS.toNanos(idleTimeout);
     }
 
     boolean onIdleTimeout(TimeoutException timeout)
@@ -308,7 +309,7 @@ public abstract class HTTP3Stream implements Stream, CyclicTimeouts.Expirable, A
             hashCode(),
             getId(),
             hasDemand(),
-            TimeUnit.NANOSECONDS.toMillis(expireNanoTime - System.nanoTime()),
+            NanoTime.millisSince(expireNanoTime),
             getSession()
         );
     }

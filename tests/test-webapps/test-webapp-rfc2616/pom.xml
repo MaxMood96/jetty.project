@@ -4,39 +4,14 @@
   <parent>
     <groupId>org.eclipse.jetty.tests</groupId>
     <artifactId>test-webapps-parent</artifactId>
-    <version>10.0.12-SNAPSHOT</version>
+    <version>10.0.25-SNAPSHOT</version>
   </parent>
   <artifactId>test-webapp-rfc2616</artifactId>
-  <name>Jetty Tests :: WebApp :: RFC2616</name>
   <packaging>war</packaging>
+  <name>Jetty Tests :: WebApp :: RFC2616</name>
   <properties>
     <bundle-symbolic-name>${project.groupId}.rfc2616</bundle-symbolic-name>
   </properties>
-  <build>
-    <plugins>
-      <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-deploy-plugin</artifactId>
-        <configuration>
-          <!-- DO NOT DEPLOY (or Release) -->
-          <skip>true</skip>
-        </configuration>
-      </plugin>
-      <plugin>
-        <groupId>org.eclipse.jetty</groupId>
-        <artifactId>jetty-maven-plugin</artifactId>
-        <version>${project.version}</version>
-        <configuration>
-          <stopPort>8087</stopPort>
-          <stopKey>foo</stopKey>
-          <scan>1</scan>
-          <systemProperties>
-              <fooprop>222</fooprop>
-          </systemProperties>
-        </configuration>
-      </plugin>
-    </plugins>
-  </build>
   <dependencies>
     <dependency>
       <groupId>org.eclipse.jetty</groupId>
@@ -48,4 +23,21 @@
       <scope>provided</scope>
     </dependency>
   </dependencies>
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.eclipse.jetty</groupId>
+        <artifactId>jetty-maven-plugin</artifactId>
+        <version>${project.version}</version>
+        <configuration>
+          <stopPort>8087</stopPort>
+          <stopKey>foo</stopKey>
+          <scan>1</scan>
+          <systemProperties>
+            <fooprop>222</fooprop>
+          </systemProperties>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
 </project>

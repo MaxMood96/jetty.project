@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -53,7 +53,6 @@ import org.eclipse.jetty.server.SslConnectionFactory;
 import org.eclipse.jetty.servlet.DefaultServlet;
 import org.eclipse.jetty.servlet.ServletContextHandler;
 import org.eclipse.jetty.servlet.ServletHolder;
-import org.eclipse.jetty.servlets.PushCacheFilter;
 import org.eclipse.jetty.util.resource.PathResource;
 import org.eclipse.jetty.util.ssl.SslContextFactory;
 import org.slf4j.LoggerFactory;
@@ -78,8 +77,6 @@ public class Http2Server
             throw new FileNotFoundException(docroot.toString());
 
         context.setBaseResource(new PathResource(docroot));
-        context.addFilter(PushCacheFilter.class, "/*", EnumSet.of(DispatcherType.REQUEST));
-        // context.addFilter(PushSessionCacheFilter.class,"/*",EnumSet.of(DispatcherType.REQUEST));
         context.addFilter(PushedTilesFilter.class, "/*", EnumSet.of(DispatcherType.REQUEST));
         context.addServlet(new ServletHolder(servlet), "/test/*");
         context.addServlet(DefaultServlet.class, "/").setInitParameter("maxCacheSize", "81920");

@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -28,6 +28,7 @@ import org.eclipse.jetty.http3.qpack.internal.instruction.SetCapacityInstruction
 import org.eclipse.jetty.http3.qpack.internal.parser.DecoderInstructionParser;
 import org.eclipse.jetty.http3.qpack.internal.parser.EncoderInstructionParser;
 import org.eclipse.jetty.util.BufferUtil;
+import org.eclipse.jetty.util.NanoTime;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
@@ -65,6 +66,7 @@ public class EncodeDecodeTest
             }
         };
         _decoder = new QpackDecoder(_decoderHandler, MAX_HEADER_SIZE);
+        _decoder.setBeginNanoTimeSupplier(NanoTime::now);
 
         _encoderInstructionParser = new EncoderInstructionParser(new EncoderParserDebugHandler(_encoder));
         _decoderInstructionParser = new DecoderInstructionParser(new DecoderParserDebugHandler(_decoder));
@@ -96,7 +98,7 @@ public class EncodeDecodeTest
         // B.2. Dynamic Table.
 
         // Set capacity to 220.
-        _encoder.setCapacity(220);
+        _encoder.setTableCapacity(220);
         Instruction instruction = _encoderHandler.getInstruction();
         assertThat(instruction, instanceOf(SetCapacityInstruction.class));
         assertThat(((SetCapacityInstruction)instruction).getCapacity(), is(220));

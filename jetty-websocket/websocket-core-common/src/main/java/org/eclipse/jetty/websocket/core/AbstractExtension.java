@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -140,13 +140,15 @@ public class AbstractExtension implements Extension
 
     protected void nextIncomingFrame(Frame frame, Callback callback)
     {
-        log.debug("nextIncomingFrame({})", frame);
+        if (log.isDebugEnabled())
+            log.debug("nextIncomingFrame({})", frame);
         this.nextIncoming.onFrame(frame, callback);
     }
 
     protected void nextOutgoingFrame(Frame frame, Callback callback, boolean batch)
     {
-        log.debug("nextOutgoingFrame({})", frame);
+        if (log.isDebugEnabled())
+            log.debug("nextOutgoingFrame({})", frame);
         this.nextOutgoing.sendFrame(frame, callback, batch);
     }
 

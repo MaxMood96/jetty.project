@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -16,9 +16,6 @@ package org.eclipse.jetty.http2.hpack;
 import org.eclipse.jetty.http.HostPortHttpField;
 import org.eclipse.jetty.http.HttpHeader;
 
-/**
- *
- */
 public class AuthorityHttpField extends HostPortHttpField
 {
     public static final String AUTHORITY = HpackContext.STATIC_TABLE[1][0];

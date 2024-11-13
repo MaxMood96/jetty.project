@@ -1,38 +1,56 @@
 #!groovy
 
 pipeline {
-  agent any
+  agent none
   // save some io during the build
-  options { durabilityHint('PERFORMANCE_OPTIMIZED') }
+  options {
+    skipDefaultCheckout()
+    durabilityHint('PERFORMANCE_OPTIMIZED')
+    buildDiscarder logRotator( numToKeepStr: '60' )
+  }
   stages {
     stage("Parallel Stage") {
       parallel {
+        stage("Build / Test - JDK21") {
+          agent { node { label 'linux' } }
+          steps {
+            timeout( time: 180, unit: 'MINUTES' ) {
+              checkout scm
+              mavenBuild( "jdk21", "clean install -Dspotbugs.skip=true -Djacoco.skip=true", "maven3")
+              recordIssues id: "jdk21", name: "Static Analysis jdk21", aggregatingResults: true, enabledForFailure: true, tools: [mavenConsole(), java(), checkStyle()]
+            }
+          }
+        }
+
         stage("Build / Test - JDK17") {
           agent { node { label 'linux' } }
           steps {
-            container('jetty-build') {
-              timeout( time: 180, unit: 'MINUTES' ) {
-                mavenBuild( "jdk17", "clean install -Perrorprone", "maven3")
-                // Collect up the jacoco execution results (only on main build)
-                jacoco inclusionPattern: '**/org/eclipse/jetty/**/*.class',
-                       exclusionPattern: '' +
-                               // build tools
-                               '**/org/eclipse/jetty/ant/**' + ',**/org/eclipse/jetty/maven/**' +
-                               ',**/org/eclipse/jetty/jspc/**' +
-                               // example code / documentation
-                               ',**/org/eclipse/jetty/embedded/**' + ',**/org/eclipse/jetty/asyncrest/**' +
-                               ',**/org/eclipse/jetty/demo/**' +
-                               // special environments / late integrations
-                               ',**/org/eclipse/jetty/gcloud/**' + ',**/org/eclipse/jetty/infinispan/**' +
-                               ',**/org/eclipse/jetty/osgi/**' +
-                               ',**/org/eclipse/jetty/http/spi/**' +
-                               // test classes
-                               ',**/org/eclipse/jetty/tests/**' + ',**/org/eclipse/jetty/test/**',
-                       execPattern: '**/target/jacoco.exec',
-                       classPattern: '**/target/classes',
-                       sourcePattern: '**/src/main/java'
-                recordIssues id: "jdk17", name: "Static Analysis jdk17", aggregatingResults: true, enabledForFailure: true, tools: [mavenConsole(), java(), checkStyle(), errorProne(), spotBugs()]
-              }
+            timeout( time: 180, unit: 'MINUTES' ) {
+              checkout scm
+              mavenBuild( "jdk17", "clean install -Perrorprone", "maven3")
+              // Collect up the jacoco execution results (only on main build)
+              jacoco inclusionPattern: '**/org/eclipse/jetty/**/*.class',
+                     exclusionPattern: '' +
+                             // build tools
+                             '**/org/eclipse/jetty/ant/**' +
+                             ',*/org/eclipse/jetty/maven/its/**' +
+                             ',**/org/eclipse/jetty/its/**' +
+                             // example code / documentation
+                             ',**/org/eclipse/jetty/embedded/**' +
+                             ',**/org/eclipse/jetty/asyncrest/**' +
+                             ',**/org/eclipse/jetty/demo/**' +
+                             // special environments / late integrations
+                             ',**/org/eclipse/jetty/gcloud/**' +
+                             ',**/org/eclipse/jetty/infinispan/**' +
+                             ',**/org/eclipse/jetty/osgi/**' +
+                             ',**/org/eclipse/jetty/http/spi/**' +
+                             // test classes
+                             ',**/org/eclipse/jetty/tests/**' +
+                             ',**/org/eclipse/jetty/test/**',
+                     execPattern: '**/target/jacoco.exec',
+                     classPattern: '**/target/classes',
+                     sourcePattern: '**/src/main/java'
+              recordIssues id: "jdk17", name: "Static Analysis jdk17", aggregatingResults: true, enabledForFailure: true, tools: [mavenConsole(), java(), checkStyle(), errorProne(), spotBugs()]
             }
           }
         }
@@ -40,11 +58,10 @@ pipeline {
         stage("Build / Test - JDK11") {
           agent { node { label 'linux' } }
           steps {
-            container( 'jetty-build' ) {
-              timeout( time: 180, unit: 'MINUTES' ) {
-                mavenBuild( "jdk11", "clean install -Dspotbugs.skip=true -Djacoco.skip=true", "maven3")
-                recordIssues id: "jdk11", name: "Static Analysis jdk11", aggregatingResults: true, enabledForFailure: true, tools: [mavenConsole(), java(), checkStyle()]
-              }
+            timeout( time: 180, unit: 'MINUTES' ) {
+              checkout scm
+              mavenBuild( "jdk11", "clean install -Dspotbugs.skip=true -Djacoco.skip=true", "maven3")
+              recordIssues id: "jdk11", name: "Static Analysis jdk11", aggregatingResults: true, enabledForFailure: true, tools: [mavenConsole(), java(), checkStyle()]
             }
           }
         }
@@ -61,6 +78,10 @@ pipeline {
     }
     fixed {
       slackNotif()
+      websiteBuild()
+    }
+    success {
+      websiteBuild()
     }
   }
 }
@@ -100,13 +121,26 @@ def mavenBuild(jdk, cmdline, mvnName) {
                "MAVEN_OPTS=-Xms2g -Xmx4g -Djava.awt.headless=true"]) {
         configFileProvider(
                 [configFile(fileId: 'oss-settings.xml', variable: 'GLOBAL_MVN_SETTINGS')]) {
-          sh "mvn --no-transfer-progress -s $GLOBAL_MVN_SETTINGS -Dmaven.repo.local=.repository -Pci -V -B -e -Djetty.testtracker.log=true $cmdline"
+          sh "mvn -Dmaven.repo.uri=http://10.0.0.15:8081/repository/maven-public/ -ntp -s $GLOBAL_MVN_SETTINGS -Dmaven.repo.local=.repository -Pci -V -B -e $cmdline"
         }
       }
     }
     finally
     {
       junit testResults: '**/target/surefire-reports/*.xml,**/target/invoker-reports/TEST*.xml', allowEmptyResults: true
+    }
+  }
+}
+
+def websiteBuild() {
+  script {
+    try {
+      if (env.BRANCH_NAME == 'jetty-10.0.x' || env.BRANCH_NAME == 'jetty-11.0.x' || env.BRANCH_NAME == 'jetty-12.0.x') {
+        build(job: 'website/jetty.website/main', propagate: false, wait: false)
+      }
+    } catch (Exception e) {
+      e.printStackTrace()
+      echo "skip website build triggering: " + e.getMessage()
     }
   }
 }

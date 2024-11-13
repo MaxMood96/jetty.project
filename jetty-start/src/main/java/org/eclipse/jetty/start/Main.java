@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -29,6 +29,7 @@ import java.net.Socket;
 import java.net.SocketTimeoutException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.stream.Collectors;
@@ -187,7 +188,7 @@ public class Main
 
     public void invokeMain(ClassLoader classloader, StartArgs args) throws IllegalAccessException, InvocationTargetException, NoSuchMethodException, IOException
     {
-        if (args.getEnabledModules().isEmpty())
+        if (args.getSelectedModules().isEmpty())
         {
             if (Files.exists(getBaseHome().getBasePath("start.jar")))
                 StartLog.error("Do not start with ${jetty.base} == ${jetty.home}!");
@@ -325,12 +326,22 @@ public class Main
         modules.registerAll();
 
         // 4) Active Module Resolution
-        for (String enabledModule : modules.getSortedNames(args.getEnabledModules()))
+        List<String> selectedModules = args.getSelectedModules();
+        List<String> sortedSelectedModules = modules.getSortedNames(selectedModules);
+        List<String> unknownModules = new ArrayList<>(selectedModules);
+        unknownModules.removeAll(sortedSelectedModules);
+        if (unknownModules.size() >= 1)
         {
-            for (String source : args.getSources(enabledModule))
+            throw new UsageException(UsageException.ERR_UNKNOWN, "Unknown module%s=[%s] List available with --list-modules",
+                unknownModules.size() > 1 ? 's' : "",
+                String.join(", ", unknownModules));
+        }
+        for (String selectedModule : sortedSelectedModules)
+        {
+            for (String source : args.getSources(selectedModule))
             {
                 String shortForm = baseHome.toShortForm(source);
-                modules.enable(enabledModule, shortForm);
+                modules.enable(selectedModule, shortForm);
             }
         }
 
@@ -429,7 +440,8 @@ public class Main
         if (args.isDryRun())
         {
             CommandLineBuilder cmd = args.getMainArgs(args.getDryRunParts());
-            System.out.println(cmd.toString(StartLog.isDebugEnabled() ? " \\\n" : " "));
+            cmd.debug();
+            System.out.println(cmd.toCommandLine());
         }
 
         if (args.isStopCommand())
@@ -470,8 +482,7 @@ public class Main
             CommandLineBuilder cmd = args.getMainArgs(StartArgs.ALL_PARTS);
             cmd.debug();
 
-            List<String> execModules = args.getEnabledModules().stream()
-                .map(name -> args.getAllModules().get(name))
+            List<String> execModules = args.getAllModules().getEnabled().stream()
                 // Keep only the forking modules.
                 .filter(module -> !module.getJvmArgs().isEmpty())
                 .map(Module::getName)

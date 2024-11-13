@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -140,6 +140,23 @@ public abstract class SelectorManager extends ContainerLifeCycle implements Dump
     }
 
     /**
+     * Get total number of keys from each selector.
+     *
+     * @return total number of selector keys
+     */
+    @ManagedAttribute(value = "Total number of keys in all selectors", readonly = true)
+    public int getTotalKeys()
+    {
+        int keys = 0;
+        for (ManagedSelector selector : _selectors)
+        {
+            if (selector != null)
+                keys += selector.getTotalKeys();
+        }
+        return keys;
+    }
+
+    /**
      * @return the number of selectors in use
      */
     @ManagedAttribute("The number of NIO Selectors")
@@ -166,7 +183,8 @@ public abstract class SelectorManager extends ContainerLifeCycle implements Dump
     public void connect(SelectableChannel channel, Object attachment)
     {
         ManagedSelector set = chooseSelector();
-        set.submit(set.new Connect(channel, attachment));
+        if (set != null)
+            set.submit(set.new Connect(channel, attachment));
     }
 
     /**
@@ -504,5 +522,11 @@ public abstract class SelectorManager extends ContainerLifeCycle implements Dump
         default void onAccepted(SelectableChannel channel)
         {
         }
+    }
+
+    @Override
+    public String toString()
+    {
+        return String.format("%s@%x[keys=%d]", getClass().getSimpleName(), hashCode(), getTotalKeys());
     }
 }

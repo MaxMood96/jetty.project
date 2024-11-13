@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -78,6 +78,12 @@ public abstract class AbstractDecodedMessageSink implements MessageSink
         if (LOG.isDebugEnabled())
             LOG.debug("accepting frame {} for {}", frame, _messageSink);
         _messageSink.accept(frame, callback);
+    }
+
+    @Override
+    public void fail(Throwable failure)
+    {
+        _messageSink.fail(failure);
     }
 
     public abstract static class Basic<T extends Decoder> extends AbstractDecodedMessageSink

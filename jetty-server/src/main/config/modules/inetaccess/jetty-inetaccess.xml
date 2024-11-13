@@ -1,5 +1,5 @@
 <?xml version="1.0"?>
-<!DOCTYPE Configure PUBLIC "-//Jetty//Configure//EN" "https://www.eclipse.org/jetty/configure_10_0.dtd">
+<!DOCTYPE Configure PUBLIC "-//Jetty//Configure//EN" "https://jetty.org/configure_10_0.dtd">
 
 <Configure id="Server" class="org.eclipse.jetty.server.Server">
   <Call name="insertHandler">
@@ -16,20 +16,6 @@
           <Arg>
             <Call class="org.eclipse.jetty.util.StringUtil" name="csvSplit">
               <Arg><Property name="jetty.inetaccess.exclude" default="" /></Arg>
-            </Call>
-          </Arg>
-        </Call>
-        <Call name="includeConnectors">
-          <Arg>
-            <Call class="org.eclipse.jetty.util.StringUtil" name="csvSplit">
-              <Arg><Property name="jetty.inetaccess.includeConnectors" default="" /></Arg>
-            </Call>
-          </Arg>
-        </Call>
-        <Call name="excludeConnectors">
-          <Arg>
-            <Call class="org.eclipse.jetty.util.StringUtil" name="csvSplit">
-              <Arg><Property name="jetty.inetaccess.excludeConnectors" default="" /></Arg>
             </Call>
           </Arg>
         </Call>

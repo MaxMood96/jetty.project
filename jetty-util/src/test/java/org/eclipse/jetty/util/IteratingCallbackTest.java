@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -15,13 +15,18 @@ package org.eclipse.jetty.util;
 
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.eclipse.jetty.util.thread.ScheduledExecutorScheduler;
 import org.eclipse.jetty.util.thread.Scheduler;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
+import static org.awaitility.Awaitility.await;
+import static org.hamcrest.Matchers.is;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -41,6 +46,45 @@ public class IteratingCallbackTest
     public void dispose() throws Exception
     {
         scheduler.stop();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    public void testIterateWhileProcessingLoopCount(boolean succeededWinsRace)
+    {
+        var icb = new IteratingCallback()
+        {
+            int counter = 0;
+
+            @Override
+            protected Action process()
+            {
+                int counter = this.counter++;
+                if (counter == 0)
+                {
+                    iterate();
+                    if (succeededWinsRace)
+                    {
+                        succeeded();
+                    }
+                    else
+                    {
+                        new Thread(() ->
+                        {
+                            await().atMost(5, TimeUnit.SECONDS).until(this::isPending, is(true));
+                            succeeded();
+                        }).start();
+                    }
+                    return Action.SCHEDULED;
+                }
+                return Action.IDLE;
+            }
+        };
+
+        icb.iterate();
+
+        await().atMost(10, TimeUnit.SECONDS).until(icb::isIdle, is(true));
+        assertEquals(2, icb.counter);
     }
 
     @Test
@@ -321,5 +365,45 @@ public class IteratingCallbackTest
             completed.await(10, TimeUnit.SECONDS);
             return isSucceeded();
         }
+    }
+
+    @Test
+    public void testMultipleFailures() throws Exception
+    {
+        AtomicInteger process = new AtomicInteger();
+        AtomicInteger failure = new AtomicInteger();
+        IteratingCallback icb = new IteratingCallback()
+        {
+            @Override
+            protected Action process() throws Throwable
+            {
+                process.incrementAndGet();
+                return Action.SCHEDULED;
+            }
+
+            @Override
+            protected void onCompleteFailure(Throwable cause)
+            {
+                super.onCompleteFailure(cause);
+                failure.incrementAndGet();
+            }
+        };
+
+        icb.iterate();
+        assertEquals(1, process.get());
+        assertEquals(0, failure.get());
+
+        icb.failed(new Throwable("test1"));
+
+        assertEquals(1, process.get());
+        assertEquals(1, failure.get());
+
+        icb.succeeded();
+        assertEquals(1, process.get());
+        assertEquals(1, failure.get());
+
+        icb.failed(new Throwable("test2"));
+        assertEquals(1, process.get());
+        assertEquals(1, failure.get());
     }
 }

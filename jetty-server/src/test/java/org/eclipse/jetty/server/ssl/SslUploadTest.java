@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -43,9 +43,6 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- *
- */
 public class SslUploadTest
 {
     private static Server server;
@@ -118,7 +115,6 @@ public class SslUploadTest
         }.start();
         */
 
-        long start = System.nanoTime();
         OutputStream out = socket.getOutputStream();
         out.write("POST / HTTP/1.1\r\n".getBytes());
         out.write("Host: localhost\r\n".getBytes());
@@ -136,10 +132,7 @@ public class SslUploadTest
         InputStream in = socket.getInputStream();
         String response = IO.toString(in);
         assertTrue(response.indexOf("200") > 0);
-        // System.err.println(response);
 
-        // long end = System.nanoTime();
-        // System.out.println("upload time: " + TimeUnit.NANOSECONDS.toMillis(end - start));
         assertEquals(requestContent.length, total);
     }
 

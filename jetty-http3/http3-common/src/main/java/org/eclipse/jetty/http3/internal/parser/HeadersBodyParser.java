@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -105,7 +105,7 @@ public class HeadersBodyParser extends BodyParser
                         // needs to be parsed, then it's not the last frame.
                         boolean last = isLast.getAsBoolean() && !buffer.hasRemaining();
 
-                        return decode(encoded, last) ? Result.WHOLE_FRAME : Result.NO_FRAME;
+                        return decode(encoded, last) ? Result.WHOLE_FRAME : Result.BLOCKED_FRAME;
                     }
                 }
                 default:
@@ -121,7 +121,7 @@ public class HeadersBodyParser extends BodyParser
     {
         try
         {
-            return decoder.decode(streamId, encoded, (streamId, metaData) -> onHeaders(metaData, last));
+            return decoder.decode(streamId, encoded, (streamId, metaData, wasBlocked) -> onHeaders(metaData, last, wasBlocked));
         }
         catch (QpackException.StreamException x)
         {
@@ -144,19 +144,19 @@ public class HeadersBodyParser extends BodyParser
         return false;
     }
 
-    private void onHeaders(MetaData metaData, boolean last)
+    private void onHeaders(MetaData metaData, boolean last, boolean wasBlocked)
     {
         HeadersFrame frame = new HeadersFrame(metaData, last);
         reset();
-        notifyHeaders(frame);
+        notifyHeaders(frame, wasBlocked);
     }
 
-    protected void notifyHeaders(HeadersFrame frame)
+    protected void notifyHeaders(HeadersFrame frame, boolean wasBlocked)
     {
         ParserListener listener = getParserListener();
         try
         {
-            listener.onHeaders(streamId, frame);
+            listener.onHeaders(streamId, frame, wasBlocked);
         }
         catch (Throwable x)
         {

@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -62,7 +62,10 @@ import org.slf4j.LoggerFactory;
  * <dt>ignoreExitState</dt>
  * <dd>If true then do not act on a non-zero exec exit status")</dd>
  * </dl>
+ *
+ * @deprecated do not use, no replacement, will be removed in a future release.
  */
+@Deprecated(forRemoval = true)
 public class CGI extends HttpServlet
 {
     private static final long serialVersionUID = -6182088932884791074L;

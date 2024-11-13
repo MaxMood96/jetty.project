@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -39,7 +39,7 @@ import org.slf4j.LoggerFactory;
  */
 public abstract class BodyParser
 {
-    protected static final Logger LOG = LoggerFactory.getLogger(BodyParser.class);
+    private static final Logger LOG = LoggerFactory.getLogger(BodyParser.class);
 
     private final HeaderParser headerParser;
     private final Parser.Listener listener;

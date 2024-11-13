@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -13,8 +13,10 @@
 
 package org.eclipse.jetty.http.client;
 
+import java.io.IOException;
 import java.net.ConnectException;
 import java.net.InetSocketAddress;
+import java.net.URI;
 import java.nio.ByteBuffer;
 import java.nio.channels.ClosedChannelException;
 import java.nio.charset.StandardCharsets;
@@ -23,6 +25,8 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
+import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
@@ -36,7 +40,11 @@ import org.eclipse.jetty.client.api.ContentResponse;
 import org.eclipse.jetty.client.api.Destination;
 import org.eclipse.jetty.client.dynamic.HttpClientTransportDynamic;
 import org.eclipse.jetty.client.http.HttpClientConnectionFactory;
+import org.eclipse.jetty.client.util.BasicAuthentication;
+import org.eclipse.jetty.client.util.ByteBufferRequestContent;
 import org.eclipse.jetty.http.HttpFields;
+import org.eclipse.jetty.http.HttpHeader;
+import org.eclipse.jetty.http.HttpMethod;
 import org.eclipse.jetty.http.HttpScheme;
 import org.eclipse.jetty.http.HttpStatus;
 import org.eclipse.jetty.http.HttpVersion;
@@ -73,6 +81,7 @@ import org.eclipse.jetty.servlet.ServletHolder;
 import org.eclipse.jetty.util.BufferUtil;
 import org.eclipse.jetty.util.Callback;
 import org.eclipse.jetty.util.FuturePromise;
+import org.eclipse.jetty.util.IO;
 import org.eclipse.jetty.util.ssl.SslContextFactory;
 import org.eclipse.jetty.util.thread.QueuedThreadPool;
 import org.hamcrest.Matchers;
@@ -86,6 +95,7 @@ import org.slf4j.LoggerFactory;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class ProxyWithDynamicTransportTest
@@ -141,6 +151,11 @@ public class ProxyWithDynamicTransportTest
 
     private void startProxy(ConnectHandler connectHandler) throws Exception
     {
+        startProxy(connectHandler, new ForwardProxyServlet());
+    }
+
+    private void startProxy(ConnectHandler connectHandler, ForwardProxyServlet proxyServlet) throws Exception
+    {
         SslContextFactory.Server sslContextFactory = new SslContextFactory.Server();
         sslContextFactory.setKeyStorePath("src/test/resources/keystore.p12");
         sslContextFactory.setKeyStorePassword("storepwd");
@@ -168,17 +183,7 @@ public class ProxyWithDynamicTransportTest
 
         proxy.setHandler(connectHandler);
         ServletContextHandler context = new ServletContextHandler(connectHandler, "/");
-        ServletHolder holder = new ServletHolder(new AsyncProxyServlet()
-        {
-            @Override
-            protected HttpClient newHttpClient(ClientConnector clientConnector)
-            {
-                ClientConnectionFactory.Info h1 = HttpClientConnectionFactory.HTTP11;
-                HTTP2Client http2Client = new HTTP2Client(clientConnector);
-                ClientConnectionFactory.Info http2 = new ClientConnectionFactoryOverHTTP2.HTTP2(http2Client);
-                return new HttpClient(new HttpClientTransportDynamic(clientConnector, h1, http2));
-            }
-        });
+        ServletHolder holder = new ServletHolder(proxyServlet);
         context.addServlet(holder, "/*");
         proxy.start();
         LOG.info("Started proxy on :{} and :{}", proxyConnector.getLocalPort(), proxyTLSConnector.getLocalPort());
@@ -260,7 +265,7 @@ public class ProxyWithDynamicTransportTest
         int proxyPort = proxySecure ? proxyTLSConnector.getLocalPort() : proxyConnector.getLocalPort();
         Origin.Address proxyAddress = new Origin.Address("localhost", proxyPort);
         HttpProxy proxy = new HttpProxy(proxyAddress, proxySecure, proxyProtocol);
-        client.getProxyConfiguration().getProxies().add(proxy);
+        client.getProxyConfiguration().addProxy(proxy);
 
         String scheme = serverSecure ? "https" : "http";
         int serverPort = serverSecure ? serverTLSConnector.getLocalPort() : serverConnector.getLocalPort();
@@ -288,6 +293,196 @@ public class ProxyWithDynamicTransportTest
         assertEquals(1, connectionPool.getConnectionCount());
     }
 
+    @ParameterizedTest(name = "proxyProtocol={0}, proxySecure={1}, serverProtocol={2}, serverSecure={3}")
+    @MethodSource("testParams")
+    public void testProxyConcurrentLoad(Origin.Protocol proxyProtocol, boolean proxySecure, HttpVersion serverProtocol, boolean serverSecure) throws Exception
+    {
+        start(new EmptyServerHandler()
+        {
+            @Override
+            protected void service(String target, Request jettyRequest, HttpServletRequest request, HttpServletResponse response) throws IOException
+            {
+                IO.copy(request.getInputStream(), response.getOutputStream());
+            }
+        });
+
+        int parallelism = 8;
+        boolean proxyMultiplexed = proxyProtocol.getProtocols().stream().allMatch(p -> p.startsWith("h2"));
+        client.setMaxConnectionsPerDestination(proxyMultiplexed ? 1 : parallelism);
+
+        int proxyPort = proxySecure ? proxyTLSConnector.getLocalPort() : proxyConnector.getLocalPort();
+        Origin.Address proxyAddress = new Origin.Address("localhost", proxyPort);
+        HttpProxy proxy = new HttpProxy(proxyAddress, proxySecure, proxyProtocol);
+        client.getProxyConfiguration().addProxy(proxy);
+
+        String scheme = serverSecure ? "https" : "http";
+        int serverPort = serverSecure ? serverTLSConnector.getLocalPort() : serverConnector.getLocalPort();
+        int contentLength = 128 * 1024;
+
+        int iterations = 16;
+        IntStream.range(0, parallelism).parallel().forEach(p ->
+            IntStream.range(0, iterations).forEach(i ->
+            {
+                try
+                {
+                    String id = p + "-" + i;
+                    ContentResponse response = client.newRequest("localhost", serverPort)
+                        .scheme(scheme)
+                        .method(HttpMethod.POST)
+                        .path("/path/" + id)
+                        .version(serverProtocol)
+                        .body(new ByteBufferRequestContent(ByteBuffer.allocate(contentLength)))
+                        .timeout(5, TimeUnit.SECONDS)
+                        .send();
+
+                    assertEquals(HttpStatus.OK_200, response.getStatus());
+                    assertEquals(contentLength, response.getContent().length);
+                }
+                catch (Throwable x)
+                {
+                    throw new RuntimeException(x);
+                }
+            }));
+    }
+
+    @ParameterizedTest(name = "proxyProtocol={0}, proxySecure={1}, serverProtocol={2}, serverSecure={3}")
+    @MethodSource("testParams")
+    public void testProxyAuthentication(Origin.Protocol proxyProtocol, boolean proxySecure, HttpVersion serverProtocol, boolean serverSecure) throws Exception
+    {
+        int status = HttpStatus.NO_CONTENT_204;
+        startServer(new EmptyServerHandler()
+        {
+            @Override
+            protected void service(String target, Request jettyRequest, HttpServletRequest request, HttpServletResponse response)
+            {
+                response.setStatus(status);
+            }
+        });
+        startProxy(new ConnectHandler()
+        {
+            @Override
+            protected void handleConnect(Request baseRequest, HttpServletRequest request, HttpServletResponse response, String serverAddress)
+            {
+                // Handle proxy authentication for tunnelled requests.
+                String proxyAuthorization = request.getHeader(HttpHeader.PROXY_AUTHORIZATION.asString());
+                if (proxyAuthorization == null)
+                {
+                    baseRequest.setHandled(true);
+                    response.setStatus(HttpStatus.FORBIDDEN_403);
+                }
+                else
+                {
+                    super.handleConnect(baseRequest, request, response, serverAddress);
+                }
+            }
+        }, new ForwardProxyServlet()
+        {
+            @Override
+            protected void service(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException
+            {
+                // Handle proxy authentication for non-tunnelled requests.
+                String proxyAuthorization = request.getHeader(HttpHeader.PROXY_AUTHORIZATION.asString());
+                if (proxyAuthorization == null)
+                    response.sendError(HttpStatus.FORBIDDEN_403);
+                else
+                    super.service(request, response);
+            }
+        });
+        startClient();
+
+        String proxyScheme = proxySecure ? "https" : "http";
+        int proxyPort = proxySecure ? proxyTLSConnector.getLocalPort() : proxyConnector.getLocalPort();
+        Origin.Address proxyAddress = new Origin.Address("localhost", proxyPort);
+        HttpProxy proxy = new HttpProxy(proxyAddress, proxySecure, proxyProtocol);
+        client.getProxyConfiguration().addProxy(proxy);
+
+        URI uri = URI.create(proxyScheme + "://" + proxyAddress.asString());
+        client.getAuthenticationStore().addAuthenticationResult(new BasicAuthentication.BasicResult(uri, HttpHeader.PROXY_AUTHORIZATION, "proxy", "proxy"));
+
+        String serverScheme = serverSecure ? "https" : "http";
+        int serverPort = serverSecure ? serverTLSConnector.getLocalPort() : serverConnector.getLocalPort();
+        ContentResponse response = client.newRequest("localhost", serverPort)
+            .scheme(serverScheme)
+            .version(serverProtocol)
+            .timeout(5, TimeUnit.SECONDS)
+            .send();
+        assertEquals(status, response.getStatus());
+    }
+
+    @ParameterizedTest(name = "proxyProtocol={0}, proxySecure={1}, serverProtocol={2}, serverSecure={3}")
+    @MethodSource("testParams")
+    public void testProxyAuthenticationAndServerAuthentication(Origin.Protocol proxyProtocol, boolean proxySecure, HttpVersion serverProtocol, boolean serverSecure) throws Exception
+    {
+        int status = HttpStatus.NO_CONTENT_204;
+        startServer(new EmptyServerHandler()
+        {
+            @Override
+            protected void service(String target, Request jettyRequest, HttpServletRequest request, HttpServletResponse response)
+            {
+                String proxyAuthorization = request.getHeader(HttpHeader.PROXY_AUTHORIZATION.asString());
+                assertNull(proxyAuthorization);
+
+                String authorization = request.getHeader(HttpHeader.AUTHORIZATION.asString());
+                if (authorization == null)
+                    response.setStatus(HttpStatus.FORBIDDEN_403);
+                else
+                    response.setStatus(status);
+            }
+        });
+        startProxy(new ConnectHandler()
+        {
+            @Override
+            protected void handleConnect(Request baseRequest, HttpServletRequest request, HttpServletResponse response, String serverAddress)
+            {
+                // Handle proxy authentication for tunnelled requests.
+                String proxyAuthorization = request.getHeader(HttpHeader.PROXY_AUTHORIZATION.asString());
+                if (proxyAuthorization == null)
+                {
+                    baseRequest.setHandled(true);
+                    response.setStatus(HttpStatus.FORBIDDEN_403);
+                }
+                else
+                {
+                    super.handleConnect(baseRequest, request, response, serverAddress);
+                }
+            }
+        }, new ForwardProxyServlet()
+        {
+            @Override
+            protected void service(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException
+            {
+                // Handle proxy authentication for non-tunnelled requests.
+                String proxyAuthorization = request.getHeader(HttpHeader.PROXY_AUTHORIZATION.asString());
+                if (proxyAuthorization == null)
+                    response.sendError(HttpStatus.FORBIDDEN_403);
+                else
+                    super.service(request, response);
+            }
+        });
+        startClient();
+
+        String proxyScheme = proxySecure ? "https" : "http";
+        int proxyPort = proxySecure ? proxyTLSConnector.getLocalPort() : proxyConnector.getLocalPort();
+        Origin.Address proxyAddress = new Origin.Address("localhost", proxyPort);
+        HttpProxy proxy = new HttpProxy(proxyAddress, proxySecure, proxyProtocol);
+        client.getProxyConfiguration().addProxy(proxy);
+
+        String serverScheme = serverSecure ? "https" : "http";
+        int serverPort = serverSecure ? serverTLSConnector.getLocalPort() : serverConnector.getLocalPort();
+
+        URI proxyURI = URI.create(proxyScheme + "://" + proxyAddress.asString());
+        client.getAuthenticationStore().addAuthenticationResult(new BasicAuthentication.BasicResult(proxyURI, HttpHeader.PROXY_AUTHORIZATION, "proxy", "proxy"));
+        URI serverURI = URI.create(serverScheme + "://localhost:" + serverPort);
+        client.getAuthenticationStore().addAuthenticationResult(new BasicAuthentication.BasicResult(serverURI, HttpHeader.AUTHORIZATION, "server", "server"));
+
+        ContentResponse response = client.newRequest("localhost", serverPort)
+            .scheme(serverScheme)
+            .version(serverProtocol)
+            .timeout(5, TimeUnit.SECONDS)
+            .send();
+        assertEquals(status, response.getStatus());
+    }
+
     @Test
     public void testHTTP2TunnelClosedByClient() throws Exception
     {
@@ -296,7 +491,7 @@ public class ProxyWithDynamicTransportTest
         int proxyPort = proxyConnector.getLocalPort();
         Origin.Address proxyAddress = new Origin.Address("localhost", proxyPort);
         HttpProxy proxy = new HttpProxy(proxyAddress, false, new Origin.Protocol(List.of("h2c"), false));
-        client.getProxyConfiguration().getProxies().add(proxy);
+        client.getProxyConfiguration().addProxy(proxy);
 
         long idleTimeout = 1000;
         http2Client.setStreamIdleTimeout(idleTimeout);
@@ -337,7 +532,7 @@ public class ProxyWithDynamicTransportTest
         int proxyPort = proxyConnector.getLocalPort();
         Origin.Address proxyAddress = new Origin.Address("localhost", proxyPort);
         HttpProxy httpProxy = new HttpProxy(proxyAddress, false, new Origin.Protocol(List.of("h2c"), false));
-        client.getProxyConfiguration().getProxies().add(httpProxy);
+        client.getProxyConfiguration().addProxy(httpProxy);
         proxy.stop();
 
         CountDownLatch latch = new CountDownLatch(1);
@@ -372,7 +567,7 @@ public class ProxyWithDynamicTransportTest
         int proxyPort = proxyConnector.getLocalPort();
         Origin.Address proxyAddress = new Origin.Address("localhost", proxyPort);
         HttpProxy httpProxy = new HttpProxy(proxyAddress, false, new Origin.Protocol(List.of("h2c"), false));
-        client.getProxyConfiguration().getProxies().add(httpProxy);
+        client.getProxyConfiguration().addProxy(httpProxy);
 
         CountDownLatch latch = new CountDownLatch(1);
         client.newRequest("localhost", serverConnector.getLocalPort())
@@ -571,5 +766,17 @@ public class ProxyWithDynamicTransportTest
         assertTrue(resetLatch.await(5, TimeUnit.SECONDS));
         // Tunnel must be closed.
         assertTrue(closeLatch.await(5, TimeUnit.SECONDS));
+    }
+
+    private static class ForwardProxyServlet extends AsyncProxyServlet
+    {
+        @Override
+        protected HttpClient newHttpClient(ClientConnector clientConnector)
+        {
+            ClientConnectionFactory.Info h1 = HttpClientConnectionFactory.HTTP11;
+            HTTP2Client http2Client = new HTTP2Client(clientConnector);
+            ClientConnectionFactory.Info http2 = new ClientConnectionFactoryOverHTTP2.HTTP2(http2Client);
+            return new HttpClient(new HttpClientTransportDynamic(clientConnector, h1, http2));
+        }
     }
 }

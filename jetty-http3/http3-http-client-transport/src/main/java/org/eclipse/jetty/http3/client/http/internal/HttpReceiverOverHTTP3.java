@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -34,7 +34,7 @@ import org.slf4j.LoggerFactory;
 public class HttpReceiverOverHTTP3 extends HttpReceiver implements Stream.Client.Listener
 {
     private static final Logger LOG = LoggerFactory.getLogger(HttpReceiverOverHTTP3.class);
-    private boolean notifySuccess;
+    private volatile boolean notifySuccess;
 
     protected HttpReceiverOverHTTP3(HttpChannelOverHTTP3 channel)
     {
@@ -59,9 +59,24 @@ public class HttpReceiverOverHTTP3 extends HttpReceiver implements Stream.Client
             return;
 
         if (notifySuccess)
+        {
             responseSuccess(exchange);
+        }
         else
-            getHttpChannel().getStream().demand();
+        {
+            Stream stream = getHttpChannel().getStream();
+            if (LOG.isDebugEnabled())
+                LOG.debug("Demanding from {} in {}", stream, this);
+            if (stream == null)
+                return;
+            stream.demand();
+        }
+    }
+
+    @Override
+    public void onNewStream(Stream.Client stream)
+    {
+        getHttpChannel().setStream(stream);
     }
 
     @Override
@@ -86,6 +101,7 @@ public class HttpReceiverOverHTTP3 extends HttpReceiver implements Stream.Client
 
             // TODO: add support for HttpMethod.CONNECT.
 
+            notifySuccess = frame.isLast();
             if (responseHeaders(exchange))
             {
                 int status = response.getStatus();
@@ -98,7 +114,6 @@ public class HttpReceiverOverHTTP3 extends HttpReceiver implements Stream.Client
             {
                 if (LOG.isDebugEnabled())
                     LOG.debug("stalling response processing, no demand after headers on {}", this);
-                notifySuccess = frame.isLast();
             }
         }
     }
@@ -118,12 +133,16 @@ public class HttpReceiverOverHTTP3 extends HttpReceiver implements Stream.Client
                 ByteBuffer byteBuffer = data.getByteBuffer();
                 if (byteBuffer.hasRemaining())
                 {
+                    if (data.isLast())
+                        notifySuccess = true;
+
                     Callback callback = Callback.from(Invocable.InvocationType.NON_BLOCKING, data::complete, x ->
                     {
                         data.complete();
                         if (responseFailure(x))
                             stream.reset(HTTP3ErrorCode.REQUEST_CANCELLED_ERROR.code(), x);
                     });
+
                     boolean proceed = responseContent(exchange, byteBuffer, callback);
                     if (proceed)
                     {
@@ -136,7 +155,6 @@ public class HttpReceiverOverHTTP3 extends HttpReceiver implements Stream.Client
                     {
                         if (LOG.isDebugEnabled())
                             LOG.debug("stalling response processing, no demand after {} on {}", data, this);
-                        notifySuccess = data.isLast();
                     }
                 }
                 else
@@ -188,5 +206,12 @@ public class HttpReceiverOverHTTP3 extends HttpReceiver implements Stream.Client
     public void onFailure(Stream.Client stream, long error, Throwable failure)
     {
         responseFailure(failure);
+    }
+
+    @Override
+    protected void reset()
+    {
+        super.reset();
+        notifySuccess = false;
     }
 }

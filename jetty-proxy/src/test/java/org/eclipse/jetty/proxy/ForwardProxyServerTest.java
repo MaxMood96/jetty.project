@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -204,7 +204,7 @@ public class ForwardProxyServerTest
         ClientConnector clientConnector = new ClientConnector();
         clientConnector.setSslContextFactory(clientTLS);
         HttpClient httpClient = new HttpClient(new HttpClientTransportOverHTTP(clientConnector));
-        httpClient.getProxyConfiguration().getProxies().add(newHttpProxy());
+        httpClient.getProxyConfiguration().addProxy(newHttpProxy());
         httpClient.start();
 
         try
@@ -253,7 +253,7 @@ public class ForwardProxyServerTest
         });
 
         HttpClient httpClient = new HttpClient();
-        httpClient.getProxyConfiguration().getProxies().add(newHttpProxy());
+        httpClient.getProxyConfiguration().addProxy(newHttpProxy());
         httpClient.start();
 
         ContentResponse response = httpClient.newRequest("[::1]", serverConnector.getLocalPort())
@@ -292,7 +292,7 @@ public class ForwardProxyServerTest
         });
 
         HttpClient httpClient = new HttpClient();
-        httpClient.getProxyConfiguration().getProxies().add(newHttpProxy());
+        httpClient.getProxyConfiguration().addProxy(newHttpProxy());
         httpClient.start();
 
         ContentResponse response = httpClient.newRequest("[::1]", serverConnector.getLocalPort())

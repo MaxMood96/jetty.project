@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -14,33 +14,27 @@
 package org.eclipse.jetty.hazelcast.session;
 
 import java.util.Collections;
-import java.util.concurrent.TimeUnit;
 
 import com.hazelcast.client.HazelcastClient;
 import com.hazelcast.client.config.ClientConfig;
 import com.hazelcast.client.config.ClientNetworkConfig;
 import com.hazelcast.config.Config;
-import com.hazelcast.config.JoinConfig;
 import com.hazelcast.config.MapConfig;
-import com.hazelcast.config.MulticastConfig;
-import com.hazelcast.config.NetworkConfig;
 import com.hazelcast.config.SerializerConfig;
 import com.hazelcast.core.Hazelcast;
 import com.hazelcast.core.HazelcastInstance;
 import org.eclipse.jetty.server.session.SessionData;
 import org.eclipse.jetty.server.session.SessionDataStoreFactory;
+import org.eclipse.jetty.util.NanoTime;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * HazelcastTestHelper
- */
 public class HazelcastTestHelper
 {
-    static final String _hazelcastInstanceName = "SESSION_TEST_" + Long.toString(TimeUnit.NANOSECONDS.toMillis(System.nanoTime()));
+    static final String _name = Long.toString(NanoTime.now());
 
-    static final String _name = Long.toString(TimeUnit.NANOSECONDS.toMillis(System.nanoTime()));
+    static final String _hazelcastInstanceName = "SESSION_TEST_" + _name;
 
     static SerializerConfig _serializerConfig;
 
@@ -48,9 +42,6 @@ public class HazelcastTestHelper
 
     static
     {
-        // Wire up hazelcast logging to slf4j
-        System.setProperty("hazelcast.logging.class", "com.hazelcast.logging.Slf4jFactory");
-
         // Wire up java.util.logging (used by hazelcast libs) to slf4j.
         if (!org.slf4j.bridge.SLF4JBridgeHandler.isInstalled())
         {
@@ -60,7 +51,7 @@ public class HazelcastTestHelper
         _serializerConfig = new SerializerConfig().setImplementation(new SessionDataSerializer()).setTypeClass(SessionData.class);
         Config config = new Config();
         config.setInstanceName(_hazelcastInstanceName);
-        config.setNetworkConfig(new NetworkConfig().setJoin(new JoinConfig().setMulticastConfig(new MulticastConfig().setEnabled(false))));
+        config.getNetworkConfig().getJoin().getAutoDetectionConfig().setEnabled(false);
         config.addMapConfig(new MapConfig().setName(_name)).setClassLoader(null);
         config.getSerializationConfig().addSerializerConfig(_serializerConfig);
         _instance = Hazelcast.getOrCreateHazelcastInstance(config);

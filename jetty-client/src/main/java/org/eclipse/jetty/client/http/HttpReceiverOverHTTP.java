@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -55,7 +55,7 @@ public class HttpReceiverOverHTTP extends HttpReceiver implements HttpParser.Res
     {
         super(channel);
         HttpClient httpClient = channel.getHttpDestination().getHttpClient();
-        parser = new HttpParser(this, -1, httpClient.getHttpCompliance());
+        parser = new HttpParser(this, httpClient.getMaxResponseHeadersSize(), httpClient.getHttpCompliance());
         HttpClientTransport transport = httpClient.getTransport();
         if (transport instanceof HttpClientTransportOverHTTP)
         {
@@ -64,7 +64,7 @@ public class HttpReceiverOverHTTP extends HttpReceiver implements HttpParser.Res
             parser.setHeaderCacheCaseSensitive(httpTransport.isHeaderCacheCaseSensitive());
         }
 
-        this.retainableByteBufferPool = RetainableByteBufferPool.findOrAdapt(httpClient, httpClient.getByteBufferPool());
+        this.retainableByteBufferPool = httpClient.getByteBufferPool().asRetainableByteBufferPool();
     }
 
     @Override
@@ -327,6 +327,7 @@ public class HttpReceiverOverHTTP extends HttpReceiver implements HttpParser.Res
 
         // Store the EndPoint is case of upgrades, tunnels, etc.
         exchange.getRequest().getConversation().setAttribute(EndPoint.class.getName(), getHttpConnection().getEndPoint());
+        getHttpConnection().onResponseHeaders(exchange);
         return !responseHeaders(exchange);
     }
 

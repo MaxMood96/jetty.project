@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -21,6 +21,7 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.LongAdder;
 
 import org.eclipse.jetty.util.IO;
+import org.eclipse.jetty.util.VirtualThreads;
 import org.eclipse.jetty.util.annotation.ManagedAttribute;
 import org.eclipse.jetty.util.annotation.ManagedObject;
 import org.eclipse.jetty.util.annotation.ManagedOperation;
@@ -90,7 +91,7 @@ import org.slf4j.LoggerFactory;
  * that says that a hunter should eat (i.e. consume) what they kill (i.e. produced).</p>
  */
 @ManagedObject("Adaptive execution strategy")
-public class AdaptiveExecutionStrategy extends ContainerLifeCycle implements ExecutionStrategy
+public class AdaptiveExecutionStrategy extends ContainerLifeCycle implements ExecutionStrategy, Runnable
 {
     private static final Logger LOG = LoggerFactory.getLogger(AdaptiveExecutionStrategy.class);
 
@@ -135,12 +136,12 @@ public class AdaptiveExecutionStrategy extends ContainerLifeCycle implements Exe
     private final Producer _producer;
     private final Executor _executor;
     private final TryExecutor _tryExecutor;
-    private final Runnable _runPendingProducer = () -> tryProduce(true);
+    private final Executor _virtualExecutor;
     private State _state = State.IDLE;
     private boolean _pending;
 
     /**
-     * @param producer The produce of tasks to be consumed.
+     * @param producer The producer of tasks to be consumed.
      * @param executor The executor to be used for executing producers or consumers, depending on the sub-strategy.
      */
     public AdaptiveExecutionStrategy(Producer producer, Executor executor)
@@ -148,8 +149,10 @@ public class AdaptiveExecutionStrategy extends ContainerLifeCycle implements Exe
         _producer = producer;
         _executor = executor;
         _tryExecutor = TryExecutor.asTryExecutor(executor);
+        _virtualExecutor = VirtualThreads.getVirtualThreadsExecutor(_executor);
         addBean(_producer);
         addBean(_tryExecutor);
+        addBean(_virtualExecutor);
         if (LOG.isDebugEnabled())
             LOG.debug("{} created", this);
     }
@@ -181,13 +184,19 @@ public class AdaptiveExecutionStrategy extends ContainerLifeCycle implements Exe
         if (LOG.isDebugEnabled())
             LOG.debug("{} dispatch {}", this, execute);
         if (execute)
-            _executor.execute(_runPendingProducer);
+            _executor.execute(this);
     }
 
     @Override
     public void produce()
     {
         tryProduce(false);
+    }
+
+    @Override
+    public void run()
+    {
+        tryProduce(true);
     }
 
     /**
@@ -304,7 +313,7 @@ public class AdaptiveExecutionStrategy extends ContainerLifeCycle implements Exe
                 try (AutoLock l = _lock.lock())
                 {
                     // If a pending producer is available or one can be started
-                    if (_pending || _tryExecutor.tryExecute(_runPendingProducer))
+                    if (_pending || _tryExecutor.tryExecute(this))
                     {
                         // Use EPC: the producer directly consumes the task, which may block
                         // and then races with the pending producer to resume production.
@@ -328,7 +337,7 @@ public class AdaptiveExecutionStrategy extends ContainerLifeCycle implements Exe
                     try (AutoLock l = _lock.lock())
                     {
                         // If a pending producer is available or one can be started
-                        if (_pending || _tryExecutor.tryExecute(_runPendingProducer))
+                        if (_pending || _tryExecutor.tryExecute(this))
                         {
                             // use EPC: The producer directly consumes the task, which may block
                             // and then races with the pending producer to resume production.
@@ -462,7 +471,10 @@ public class AdaptiveExecutionStrategy extends ContainerLifeCycle implements Exe
     {
         try
         {
-            _executor.execute(task);
+            Executor executor = _virtualExecutor;
+            if (executor == null)
+                executor = _executor;
+            executor.execute(task);
         }
         catch (RejectedExecutionException e)
         {
@@ -474,6 +486,12 @@ public class AdaptiveExecutionStrategy extends ContainerLifeCycle implements Exe
             if (task instanceof Closeable)
                 IO.close((Closeable)task);
         }
+    }
+
+    @ManagedAttribute(value = "whether this execution strategy uses virtual threads", readonly = true)
+    public boolean isUseVirtualThreads()
+    {
+        return _virtualExecutor != null;
     }
 
     @ManagedAttribute(value = "number of tasks consumed with PC mode", readonly = true)

@@ -39,6 +39,9 @@ etc/jetty.xml
 ## Max response content write length that is buffered (in bytes)
 # jetty.httpConfig.outputAggregationSize=8192
 
+## If HTTP/1.x persistent connections should be enabled
+# jetty.httpConfig.persistentConnectionsEnabled=true
+
 ## Max request headers size (in bytes)
 # jetty.httpConfig.requestHeaderSize=8192
 
@@ -75,7 +78,7 @@ etc/jetty.xml
 ## URI Compliance: DEFAULT, LEGACY, RFC3986, RFC3986_UNAMBIGUOUS, UNSAFE
 # jetty.httpConfig.uriCompliance=DEFAULT
 
-## Cookie compliance mode for parsing request Cookie headers: RFC2965, RFC6265
+## Cookie compliance mode for parsing request Cookie headers: RFC6265_STRICT, RFC6265, RFC6265_LEGACY, RFC2965, RFC2965_LEGACY
 # jetty.httpConfig.requestCookieCompliance=RFC6265
 
 ## Cookie compliance mode for generating response Set-Cookie: RFC2965, RFC6265

@@ -1,5 +1,5 @@
 <?xml version="1.0"?>
-<!DOCTYPE Configure PUBLIC "-//Jetty//Configure//EN" "https://www.eclipse.org/jetty/configure_10_0.dtd">
+<!DOCTYPE Configure PUBLIC "-//Jetty//Configure//EN" "https://jetty.org/configure_10_0.dtd">
 
 <!-- =============================================================== -->
 <!-- The DebugListener                                               -->
@@ -9,7 +9,7 @@
   <New id="DebugListener" class="org.eclipse.jetty.server.DebugListener">
     <Arg name="outputStream">
       <New class="org.eclipse.jetty.util.RolloverFileOutputStream">
-        <Arg type="String"><Property name="jetty.logs" default="./logs"/>/yyyy_mm_dd.debug.log</Arg>
+        <Arg type="String"><Property name="jetty.debug.logs" deprecated="jetty.logs" default="./logs"/>/yyyy_mm_dd.debug.log</Arg>
         <Arg type="boolean"><Property name="jetty.debug.append" default="true"/></Arg>
         <Arg type="int"><Property name="jetty.debug.retainDays" default="14"/></Arg>
         <Arg>

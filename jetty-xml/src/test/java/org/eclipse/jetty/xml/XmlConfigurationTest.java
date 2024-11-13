@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -17,21 +17,29 @@ import java.io.BufferedWriter;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;
+import java.lang.reflect.Executable;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.net.URL;
+import java.nio.channels.SocketChannel;
+import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
+import java.time.temporal.Temporal;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import javax.net.ssl.SSLSocketFactory;
 
 import org.eclipse.jetty.logging.JettyLevel;
 import org.eclipse.jetty.logging.JettyLogger;
@@ -54,11 +62,14 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.xml.sax.InputSource;
 import org.xml.sax.SAXException;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
+import static org.eclipse.jetty.xml.XmlConfiguration.EXECUTABLE_COMPARATOR;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.allOf;
+import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.instanceOf;
@@ -77,23 +88,27 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @ExtendWith(WorkDirExtension.class)
 public class XmlConfigurationTest
 {
-    public WorkDir workDir;
-
     private static final String STRING_ARRAY_XML = "<Array type=\"String\"><Item type=\"String\">String1</Item><Item type=\"String\">String2</Item></Array>";
     private static final String INT_ARRAY_XML = "<Array type=\"int\"><Item type=\"int\">1</Item><Item type=\"int\">2</Item></Array>";
+
+    public WorkDir workDir;
 
     @Test
     public void testMortBay() throws Exception
     {
         URL url = XmlConfigurationTest.class.getResource("mortbay.xml");
         Resource resource = Resource.newResource(url);
+        assertNotNull(resource);
         XmlConfiguration configuration = new XmlConfiguration(resource);
         configuration.configure();
     }
 
-    public static String[] xmlConfigs()
+    public static Stream<Arguments> xmlConfigs()
     {
-        return new String[]{"org/eclipse/jetty/xml/configureWithAttr.xml", "org/eclipse/jetty/xml/configureWithElements.xml"};
+        return Stream.of(
+            Arguments.of("org/eclipse/jetty/xml/configureWithAttr.xml"),
+            Arguments.of("org/eclipse/jetty/xml/configureWithElements.xml")
+        );
     }
 
     @ParameterizedTest
@@ -269,18 +284,18 @@ public class XmlConfigurationTest
 
     public XmlConfiguration asXmlConfiguration(String rawXml) throws IOException, SAXException
     {
-        if (rawXml.indexOf("!DOCTYPE") < 0)
+        if (!rawXml.contains("!DOCTYPE"))
             rawXml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
-                "<!DOCTYPE Configure PUBLIC \"-//Jetty//Configure//EN\" \"https://www.eclipse.org/jetty/configure_10_0.dtd\">\n" +
+                "<!DOCTYPE Configure PUBLIC \"-//Jetty//Configure//EN\" \"https://jetty.org/configure_10_0.dtd\">\n" +
                 rawXml;
         return asXmlConfiguration("raw.xml", rawXml);
     }
 
     public XmlConfiguration asXmlConfiguration(String filename, String rawXml) throws IOException, SAXException
     {
-        if (rawXml.indexOf("!DOCTYPE") < 0)
+        if (!rawXml.contains("!DOCTYPE"))
             rawXml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
-                "<!DOCTYPE Configure PUBLIC \"-//Jetty//Configure//EN\" \"https://www.eclipse.org/jetty/configure_10_0.dtd\">\n" +
+                "<!DOCTYPE Configure PUBLIC \"-//Jetty//Configure//EN\" \"https://jetty.org/configure_10_0.dtd\">\n" +
                 rawXml;
         Path testFile = workDir.getEmptyPathDir().resolve(filename);
         try (BufferedWriter writer = Files.newBufferedWriter(testFile, UTF_8))
@@ -348,7 +363,7 @@ public class XmlConfigurationTest
         tc.testField1 = -1;
         configuration.configure(tc);
         assertEquals(-1, tc.testField1);
-        assertEquals(configuration.getIdMap().get("test"), null);
+        assertNull(configuration.getIdMap().get("test"));
     }
 
     @Test
@@ -723,6 +738,22 @@ public class XmlConfigurationTest
         {
         }
 
+        public void call(Aaa aaa)
+        {
+        }
+
+        public void call(Bbb aaa)
+        {
+        }
+
+        public void call(Ccc aaa)
+        {
+        }
+
+        public void call(Abc abc)
+        {
+        }
+
         public void call(Object o)
         {
         }
@@ -740,16 +771,20 @@ public class XmlConfigurationTest
         }
     }
 
-    @RepeatedTest(10)
+    @RepeatedTest(100)
     public void testMethodOrdering() throws Exception
     {
         List<Method> methods = Arrays.stream(TestOrder.class.getMethods()).filter(m -> "call".equals(m.getName())).collect(Collectors.toList());
         Collections.shuffle(methods);
-        Collections.sort(methods, XmlConfiguration.EXECUTABLE_COMPARATOR);
+        methods.sort(EXECUTABLE_COMPARATOR);
         assertThat(methods, Matchers.contains(
             TestOrder.class.getMethod("call"),
             TestOrder.class.getMethod("call", int.class),
+            TestOrder.class.getMethod("call", Abc.class),
+            TestOrder.class.getMethod("call", Aaa.class),
             TestOrder.class.getMethod("call", String.class),
+            TestOrder.class.getMethod("call", Bbb.class),
+            TestOrder.class.getMethod("call", Ccc.class),
             TestOrder.class.getMethod("call", Object.class),
             TestOrder.class.getMethod("call", String[].class),
             TestOrder.class.getMethod("call", String.class, String[].class)
@@ -1465,7 +1500,7 @@ public class XmlConfigurationTest
             assertThat("BarNamed has foo", bar.getFoo(), is("foozball"));
         });
 
-        List<String> warnings = Arrays.stream(logBytes.toString(UTF_8.name()).split(System.lineSeparator()))
+        List<String> warnings = Arrays.stream(logBytes.toString(UTF_8).split(System.lineSeparator()))
             .filter(line -> line.contains(":WARN"))
             .collect(Collectors.toList());
 
@@ -1495,7 +1530,7 @@ public class XmlConfigurationTest
             assertThat("BarNamed has foo", bar.getFoo(), is("foozball"));
         });
 
-        List<String> warnings = Arrays.stream(logBytes.toString(UTF_8.name()).split(System.lineSeparator()))
+        List<String> warnings = Arrays.stream(logBytes.toString(UTF_8).split(System.lineSeparator()))
             .filter(line -> line.contains(":WARN :"))
             .collect(Collectors.toList());
 
@@ -1564,7 +1599,7 @@ public class XmlConfigurationTest
             assertThat("Zeds[0]", zeds.get(0), is("plain-zero"));
         });
 
-        List<String> warnings = Arrays.stream(logBytes.toString(UTF_8.name()).split(System.lineSeparator()))
+        List<String> warnings = Arrays.stream(logBytes.toString(UTF_8).split(System.lineSeparator()))
             .filter(line -> line.contains(":WARN :"))
             .collect(Collectors.toList());
 
@@ -1590,6 +1625,7 @@ public class XmlConfigurationTest
             configuration.configure();
             last = configuration;
         }
+        assertNotNull(last);
         return last.getIdMap();
     }
 
@@ -1628,7 +1664,7 @@ public class XmlConfigurationTest
 
         ByteArrayOutputStream logBytes = captureLoggingBytes(xmlConfiguration::configure);
 
-        String[] lines = logBytes.toString(UTF_8.name()).split(System.lineSeparator());
+        String[] lines = logBytes.toString(UTF_8).split(System.lineSeparator());
         List<String> warnings = Arrays.stream(lines)
             .filter(line -> line.contains(":WARN :"))
             .filter(line -> line.contains(testClass.getSimpleName()))
@@ -1765,6 +1801,131 @@ public class XmlConfigurationTest
         assertEquals(baseDir.resolve("etc/keystore").toString(), resolved);
     }
 
+    @Test
+    public void testPropertyNoNameAttributeWithDeprecatedAttribute() throws Exception
+    {
+        XmlConfiguration configuration = asXmlConfiguration(
+            "<Configure class=\"org.eclipse.jetty.xml.TestConfiguration\">" +
+            "  <Set name=\"TestString\">" +
+            "    <Property deprecated=\"jetty.deprecated\" />" +
+            "  </Set>" +
+            "</Configure>"
+        );
+
+        String value = "deprecated";
+        configuration.getProperties().put("jetty.deprecated", value);
+
+        TestConfiguration tc = new TestConfiguration();
+        configuration.configure(tc);
+
+        assertThat(tc.getTestString(), is(value));
+    }
+
+    @Test
+    public void testVirtualGetWithClassAttribute() throws Exception
+    {
+        // SocketChannel.open() returns an internal class
+        // that cannot be accessed, so <Get> must specify the
+        // class to use to lookup the 'getLocalAddress' method.
+        XmlConfiguration configuration = asXmlConfiguration(
+            "<Configure class=\"org.eclipse.jetty.xml.TestConfiguration\">" +
+            "  <Set name=\"Test\">" +
+            "    <Call class=\"java.nio.channels.SocketChannel\" name=\"open\">" +
+            "      <Get class=\"java.nio.channels.SocketChannel\" name=\"localAddress\" />" +
+            "    </Call>" +
+            "  </Set>" +
+            "</Configure>"
+        );
+
+        TestConfiguration tc = new TestConfiguration();
+        configuration.configure(tc);
+
+        assertThat(tc.testObject, instanceOf(SocketChannel.class));
+    }
+
+    @Test
+    public void testVirtualSetWithClassAttribute() throws Exception
+    {
+        // SSLSocketFactory.getDefault().createSocket() returns an internal
+        // class that cannot be accessed, so <Set> must specify the
+        // class to use to lookup the 'setNeedClientAuth' method.
+        XmlConfiguration configuration = asXmlConfiguration(
+            "<Configure class=\"org.eclipse.jetty.xml.TestConfiguration\">" +
+            "  <Set name=\"Test\">" +
+            "    <Call class=\"javax.net.ssl.SSLSocketFactory\" name=\"getDefault\">" +
+            "      <Call class=\"javax.net.ssl.SSLSocketFactory\" name=\"createSocket\">" +
+            "        <Set class=\"javax.net.ssl.SSLSocket\" name=\"needClientAuth\">true</Set>" +
+            "      </Call>" +
+            "    </Call>" +
+            "  </Set>" +
+            "</Configure>"
+        );
+
+        TestConfiguration tc = new TestConfiguration();
+        configuration.configure(tc);
+
+        assertThat(tc.testObject, instanceOf(SSLSocketFactory.class));
+    }
+
+    @Test
+    public void testVirtualCallWithClassAttribute() throws Exception
+    {
+        // Executors.newSingleThreadScheduledExecutor() returns an
+        // internal class that cannot be accessed, so <Call> must
+        // specify the class to use to lookup the 'shutdown' method.
+        XmlConfiguration configuration = asXmlConfiguration(
+            "<Configure class=\"org.eclipse.jetty.xml.TestConfiguration\">" +
+            "  <Set name=\"Test\">" +
+            "    <Call class=\"java.util.concurrent.Executors\" name=\"newSingleThreadScheduledExecutor\">" +
+            "      <Call class=\"java.util.concurrent.ExecutorService\" name=\"shutdown\" />" +
+            "    </Call>" +
+            "  </Set>" +
+            "</Configure>"
+        );
+
+        TestConfiguration tc = new TestConfiguration();
+        configuration.configure(tc);
+
+        assertThat(tc.testObject, instanceOf(ScheduledExecutorService.class));
+    }
+
+    public static Stream<Arguments> xmlSystemIdSource()
+    {
+        List<Arguments> ids = new ArrayList<>();
+
+        String[] schemes = {"http", "https"};
+        String[] contexts = {"eclipse.org/jetty", "www.eclipse.org/jetty", "eclipse.dev/jetty", "www.eclipse.dev/jetty", "jetty.org"};
+        String[] paths = {"configure.dtd", "configure_9_3.dtd", "configure_10_0.dtd"};
+
+        for (String scheme: schemes)
+        {
+            for (String host: contexts)
+            {
+                for (String path: paths)
+                {
+                    ids.add(Arguments.of(String.format("%s://%s/%s", scheme, host, path)));
+                }
+            }
+        }
+
+        return ids.stream();
+    }
+
+    /**
+     * Test to ensure that all the XML System ID variants are covered in the
+     * {@link XmlConfiguration} internals.
+     */
+    @ParameterizedTest
+    @MethodSource("xmlSystemIdSource")
+    public void testSystemIdVariants(String xmlSystemId) throws IOException, SAXException
+    {
+        // empty raw xml, just to instantiate XmlConfiguration, so we can access the XmlParser / ConfigurationParser.
+        XmlConfiguration xmlConfiguration = asXmlConfiguration("<Configure class=\"org.eclipse.jetty.xml.TestConfiguration\" />");
+        XmlParser configurationProcessor = xmlConfiguration.getXmlParser();
+        InputSource inputSource = configurationProcessor.resolveEntity(null, xmlSystemId);
+        assertNotNull(inputSource, "SystemID: " + xmlSystemId + " does not exist");
+    }
+
     private ByteArrayOutputStream captureLoggingBytes(ThrowableAction action) throws Exception
     {
         Logger slf4jLogger = LoggerFactory.getLogger(XmlConfiguration.class);
@@ -1795,5 +1956,130 @@ public class XmlConfigurationTest
     private interface ThrowableAction
     {
         void run() throws Exception;
+    }
+
+    @Test
+    public void testExecutableComparator() throws Throwable
+    {
+        aaa(null);
+        bbb(null);
+        ccc(null);
+
+        Stream.of(XmlConfigurationTest.class.getMethods())
+            .filter(m -> m.getName().length() == 3)
+            .filter(m -> !m.getName().equals("foo"))
+            .sorted(EXECUTABLE_COMPARATOR)
+            .map(Executable::toGenericString)
+            .forEach(System.out::println);
+
+        List<Method> methods = Arrays.asList(Arrays.stream(XmlConfigurationTest.class.getMethods())
+            .filter(m -> m.getName().length() == 3)
+            .toArray(Method[]::new));
+
+        // The implementor must also ensure that the relation is transitive: ((compare(x, y)>0) && (compare(y, z)>0)) implies compare(x, z)>0
+        assertThat(EXECUTABLE_COMPARATOR.compare(methods.get(0), methods.get(1)), is(EXECUTABLE_COMPARATOR.compare(methods.get(1), methods.get(2))));
+        assertThat(EXECUTABLE_COMPARATOR.compare(methods.get(0), methods.get(1)), is(EXECUTABLE_COMPARATOR.compare(methods.get(0), methods.get(2))));
+    }
+
+    public void aaa(Aaa ignored)
+    {
+    }
+
+    public void bbb(Bbb ignored)
+    {
+    }
+
+    public void ccc(Ccc ignored)
+    {
+    }
+
+    public interface Aaa
+    {
+    }
+
+    public interface Abc extends Aaa
+    {
+    }
+
+    public static class Bbb
+    {
+    }
+
+    public static class Ccc implements Aaa
+    {
+    }
+
+    @Test
+    public void testFooExecutableComparator()
+    {
+        List<String> orderedMethodIds = Stream.of(FooObj.class.getMethods())
+            .filter(m -> m.getName().equals("foo"))
+            .sorted(EXECUTABLE_COMPARATOR)
+            .map(Executable::toGenericString)
+            .collect(Collectors.toList());
+        orderedMethodIds.forEach(System.out::println);
+        String[] expectedOrder = {
+            "public void org.eclipse.jetty.xml.XmlConfigurationTest$FooObj.foo()", // favor fewer args
+            "public void org.eclipse.jetty.xml.XmlConfigurationTest$FooObj.foo(int)", // favor primitives over non-primitives
+            "public void org.eclipse.jetty.xml.XmlConfigurationTest$FooObj.foo(java.time.temporal.Temporal)", // favor over Instant
+            "public int org.eclipse.jetty.xml.XmlConfigurationTest$FooObj.foo(java.lang.String)",
+            "public java.util.Locale org.eclipse.jetty.xml.XmlConfigurationTest$FooObj.foo(java.nio.charset.Charset)",
+            "public void org.eclipse.jetty.xml.XmlConfigurationTest$FooObj.foo(java.time.Instant)",
+            "public void org.eclipse.jetty.xml.XmlConfigurationTest$FooObj.foo(java.util.Locale)",
+            "public void org.eclipse.jetty.xml.XmlConfigurationTest$FooObj.foo(int,java.lang.String)",
+            "public void org.eclipse.jetty.xml.XmlConfigurationTest$FooObj.foo(java.lang.String,int)",
+            "public void org.eclipse.jetty.xml.XmlConfigurationTest$FooObj.foo(int,java.lang.String,java.lang.String)",
+            "public void org.eclipse.jetty.xml.XmlConfigurationTest$FooObj.foo(int,java.lang.String,java.lang.String,java.lang.Object)"
+        };
+        assertThat(orderedMethodIds, contains(expectedOrder));
+    }
+
+    public static class FooObj
+    {
+        public void foo()
+        {
+        }
+
+        public int foo(String name)
+        {
+            return -1;
+        }
+
+        public void foo(int id)
+        {
+        }
+
+        public void foo(Locale locale)
+        {
+        }
+
+        public void foo(Instant timestamp) // Instant extends from Temporal
+        {
+        }
+
+        public void foo(Temporal temporal)
+        {
+        }
+
+        public Locale foo(Charset charset)
+        {
+            return null;
+        }
+
+        public void foo(String name, int id)
+        {
+        }
+
+        public void foo(int id, String name)
+        {
+        }
+
+        public void foo(int id, String name, String description)
+        {
+        }
+
+        public void foo(int id, String name, String description, Object value)
+        {
+        }
     }
 }

@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -27,13 +27,11 @@ import org.eclipse.jetty.io.ByteBufferPool;
 public class HeadersGenerator extends FrameGenerator
 {
     private final QpackEncoder encoder;
-    private final int maxLength;
     private final boolean useDirectByteBuffers;
 
-    public HeadersGenerator(QpackEncoder encoder, int maxLength, boolean useDirectByteBuffers)
+    public HeadersGenerator(QpackEncoder encoder, boolean useDirectByteBuffers)
     {
         this.encoder = encoder;
-        this.maxLength = maxLength;
         this.useDirectByteBuffers = useDirectByteBuffers;
     }
 
@@ -52,6 +50,7 @@ public class HeadersGenerator extends FrameGenerator
             int frameTypeLength = VarLenInt.length(FrameType.HEADERS.type());
             int maxHeaderLength = frameTypeLength + VarLenInt.MAX_LENGTH;
             // The capacity of the buffer is larger than maxLength, but we need to enforce at most maxLength.
+            int maxLength = encoder.getMaxHeadersSize();
             ByteBuffer buffer = lease.acquire(maxHeaderLength + maxLength, useDirectByteBuffers);
             buffer.position(maxHeaderLength);
             buffer.limit(buffer.position() + maxLength);

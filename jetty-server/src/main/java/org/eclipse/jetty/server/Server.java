@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -46,6 +46,7 @@ import org.eclipse.jetty.util.Attributes;
 import org.eclipse.jetty.util.Jetty;
 import org.eclipse.jetty.util.MultiException;
 import org.eclipse.jetty.util.MultiMap;
+import org.eclipse.jetty.util.NanoTime;
 import org.eclipse.jetty.util.StringUtil;
 import org.eclipse.jetty.util.URIUtil;
 import org.eclipse.jetty.util.Uptime;
@@ -483,7 +484,7 @@ public class Server extends HandlerWrapper implements Attributes
 
         if (getStopTimeout() > 0)
         {
-            long end = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(getStopTimeout());
+            long end = NanoTime.now() + TimeUnit.MILLISECONDS.toNanos(getStopTimeout());
             try
             {
                 Graceful.shutdown(this).get(getStopTimeout(), TimeUnit.MILLISECONDS);
@@ -494,7 +495,7 @@ public class Server extends HandlerWrapper implements Attributes
             }
             QueuedThreadPool qtp = getBean(QueuedThreadPool.class);
             if (qtp != null)
-                qtp.setStopTimeout(Math.max(1000L, TimeUnit.NANOSECONDS.toMillis(end - System.nanoTime())));
+                qtp.setStopTimeout(Math.max(1000L, NanoTime.millisUntil(end)));
         }
 
         // Now stop the connectors (this will close existing connections)

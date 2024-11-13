@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -2090,6 +2090,7 @@ public class ResponseTest
         response.setContentType("some/type");
         response.setContentLength(3);
         response.setHeader(HttpHeader.EXPIRES, "never");
+        response.setHeader(HttpHeader.DATE, "2000-01-01");
 
         response.setHeader("SomeHeader", "SomeValue");
 
@@ -2106,6 +2107,7 @@ public class ResponseTest
 
         // check arbitrary header still set
         assertThat(response.getHeader("SomeHeader"), is("SomeValue"));
+        assertThat(response.getHeader("Date"), is("2000-01-01"));
 
         // check cookies are still there
         Enumeration<String> set = response.getHttpFields().getValues("Set-Cookie");

@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -19,13 +19,22 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 import org.eclipse.jetty.start.BaseHome;
-import org.eclipse.jetty.start.FileInitializer;
+import org.eclipse.jetty.start.StartArgs;
 
-public class UriFileInitializer extends FileInitializer
+public class UriFileInitializer extends DownloadFileInitializer
 {
-    public UriFileInitializer(BaseHome baseHome)
+    protected final boolean _allowInsecureHttpDownloads;
+
+    public UriFileInitializer(StartArgs startArgs, BaseHome baseHome)
     {
         super(baseHome, "http", "https");
+        _allowInsecureHttpDownloads = startArgs.isAllowInsecureHttpDownloads();
+    }
+
+    @Override
+    protected boolean allowInsecureHttpDownloads()
+    {
+        return _allowInsecureHttpDownloads;
     }
 
     @Override
