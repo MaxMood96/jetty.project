@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -22,6 +22,7 @@ import org.eclipse.jetty.http.HttpScheme;
 import org.eclipse.jetty.http.HttpVersion;
 import org.eclipse.jetty.http.MetaData;
 import org.eclipse.jetty.http3.qpack.QpackException;
+import org.eclipse.jetty.util.NanoTime;
 
 import static org.eclipse.jetty.http3.qpack.QpackException.H3_GENERAL_PROTOCOL_ERROR;
 
@@ -40,6 +41,7 @@ public class MetaDataBuilder
     private QpackException.StreamException _streamException;
     private boolean _request;
     private boolean _response;
+    private long _beginNanoTime = Long.MIN_VALUE;
 
     /**
      * @param maxHeadersSize The maximum size of the headers, expressed as total name and value characters.
@@ -57,6 +59,13 @@ public class MetaDataBuilder
     public int getMaxSize()
     {
         return _maxSize;
+    }
+
+    public void setBeginNanoTime(long beginNanoTime)
+    {
+        if (beginNanoTime == Long.MIN_VALUE)
+            beginNanoTime++;
+        _beginNanoTime = beginNanoTime;
     }
 
     /**
@@ -78,7 +87,7 @@ public class MetaDataBuilder
         String value = field.getValue();
         int fieldSize = name.length() + (value == null ? 0 : value.length());
         _size += fieldSize + 32;
-        if (_size > _maxSize)
+        if (_maxSize > 0 && _size > _maxSize)
             throw new QpackException.SessionException(QpackException.QPACK_DECOMPRESSION_FAILED, String.format("Header size %d > %d", _size, _maxSize));
 
         if (field instanceof StaticTableHttpField)
@@ -246,10 +255,13 @@ public class MetaDataBuilder
                     if (_path == null)
                         throw new QpackException.StreamException(H3_GENERAL_PROTOCOL_ERROR, "No Path");
                 }
+                long nanoTime = _beginNanoTime == Long.MIN_VALUE ? NanoTime.now() : _beginNanoTime;
+                _beginNanoTime = Long.MIN_VALUE;
                 if (isConnect)
-                    return new MetaData.ConnectRequest(_scheme, _authority, _path, fields, _protocol);
+                    return new MetaData.ConnectRequest(nanoTime, _scheme, _authority, _path, fields, _protocol);
                 else
                     return new MetaData.Request(
+                        nanoTime,
                         _method,
                         _scheme.asString(),
                         _authority,

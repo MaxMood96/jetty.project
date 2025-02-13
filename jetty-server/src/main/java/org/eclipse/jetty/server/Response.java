@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -28,6 +28,7 @@ import javax.servlet.ServletOutputStream;
 import javax.servlet.ServletResponse;
 import javax.servlet.ServletResponseWrapper;
 import javax.servlet.http.Cookie;
+import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import javax.servlet.http.HttpServletResponseWrapper;
 import javax.servlet.http.HttpSession;
@@ -267,6 +268,7 @@ public class Response implements HttpServletResponse
             String comment = cookie.getComment();
             // HttpOnly was supported as a comment in cookie flags before the java.net.HttpCookie implementation so need to check that
             boolean httpOnly = cookie.isHttpOnly() || HttpCookie.isHttpOnlyInComment(comment);
+            boolean partitioned = HttpCookie.isPartitionedInComment(comment);
             SameSite sameSite = HttpCookie.getSameSiteFromComment(comment);
             comment = HttpCookie.getCommentWithoutAttributes(comment);
 
@@ -280,7 +282,8 @@ public class Response implements HttpServletResponse
                 cookie.getSecure(),
                 comment,
                 cookie.getVersion(),
-                sameSite));
+                sameSite,
+                partitioned));
         }
     }
 
@@ -578,35 +581,7 @@ public class Response implements HttpServletResponse
         if (!isMutable())
             return;
 
-        if (location == null)
-            throw new IllegalArgumentException();
-
-        if (!URIUtil.hasScheme(location))
-        {
-            StringBuilder buf = _channel.getHttpConfiguration().isRelativeRedirectAllowed()
-                ? new StringBuilder()
-                : _channel.getRequest().getRootURL();
-            if (location.startsWith("/"))
-            {
-                // absolute in context
-                location = URIUtil.canonicalURI(location);
-            }
-            else
-            {
-                // relative to request
-                String path = _channel.getRequest().getRequestURI();
-                String parent = (path.endsWith("/")) ? path : URIUtil.parentPath(path);
-                location = URIUtil.canonicalURI(URIUtil.addEncodedPaths(parent, location));
-                if (location != null && !location.startsWith("/"))
-                    buf.append('/');
-            }
-
-            if (location == null)
-                throw new IllegalStateException("path cannot be above root");
-            buf.append(location);
-
-            location = buf.toString();
-        }
+        location = toRedirectURI(_channel.getRequest(), location);
 
         resetBuffer();
         setHeader(HttpHeader.LOCATION, location);
@@ -618,6 +593,49 @@ public class Response implements HttpServletResponse
     public void sendRedirect(String location) throws IOException
     {
         sendRedirect(HttpServletResponse.SC_MOVED_TEMPORARILY, location);
+    }
+
+    /**
+     * Common point to generate a proper "Location" header for redirects.
+     *
+     * @param request the request the redirect should be based on (needed when relative locations are provided, so that
+     * server name, scheme, port can be built out properly)
+     * @param location the location as an absolute URI or an encoded relative path. A relative path starting with '/'
+     *                 is relative to the root, otherwise it is relative to the request path.
+     * @return the full redirect "Location" URL (including scheme, host, port, path, etc...)
+     */
+    public static String toRedirectURI(final HttpServletRequest request, String location)
+    {
+        // is the URI absolute already?
+        if (!URIUtil.hasScheme(location))
+        {
+            // The location is relative
+
+            // Is it relative to the request?
+            if (!location.startsWith("/"))
+            {
+                String path = request.getRequestURI();
+                String parent = (path.endsWith("/")) ? path : URIUtil.parentPath(path);
+                location = URIUtil.addEncodedPaths(parent, location);
+            }
+
+            // Normalize out any dot dot segments
+            location = URIUtil.canonicalURI(location);
+            if (location == null)
+                throw new IllegalStateException("redirect path cannot be above root");
+
+            // if relative redirects are not allowed?
+            Request baseRequest = Request.getBaseRequest(request);
+            if (baseRequest == null || !baseRequest.getHttpChannel().getHttpConfiguration().isRelativeRedirectAllowed())
+            {
+                // make the location an absolute URI
+                StringBuilder url = new StringBuilder(128);
+                URIUtil.appendSchemeHostPort(url, request.getScheme(), request.getServerName(), request.getServerPort());
+                url.append(location);
+                location = url.toString();
+            }
+        }
+        return location;
     }
 
     @Override
@@ -1253,7 +1271,6 @@ public class Response implements HttpServletResponse
                 case LAST_MODIFIED:
                 case EXPIRES:
                 case ETAG:
-                case DATE:
                 case VARY:
                     i.remove();
                     continue;

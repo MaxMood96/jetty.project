@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -80,7 +80,11 @@ public class ClientQuicConnection extends QuicConnection
             QuicheConfig quicheConfig = new QuicheConfig();
             quicheConfig.setApplicationProtos(protocols.toArray(String[]::new));
             quicheConfig.setDisableActiveMigration(quicConfiguration.isDisableActiveMigration());
-            quicheConfig.setVerifyPeer(quicConfiguration.isVerifyPeerCertificates());
+            quicheConfig.setVerifyPeer(!connector.getSslContextFactory().isTrustAll());
+            Map<String, Object> implCtx = quicConfiguration.getImplementationConfiguration();
+            quicheConfig.setTrustedCertsPemPath((String)implCtx.get(QuicClientConnectorConfigurator.TRUSTED_CERTIFICATES_PEM_PATH_KEY));
+            quicheConfig.setPrivKeyPemPath((String)implCtx.get(QuicClientConnectorConfigurator.PRIVATE_KEY_PEM_PATH_KEY));
+            quicheConfig.setCertChainPemPath((String)implCtx.get(QuicClientConnectorConfigurator.CERTIFICATE_CHAIN_PEM_PATH_KEY));
             // Idle timeouts must not be managed by Quiche.
             quicheConfig.setMaxIdleTimeout(0L);
             quicheConfig.setInitialMaxData((long)quicConfiguration.getSessionRecvWindow());
@@ -96,7 +100,7 @@ public class ClientQuicConnection extends QuicConnection
             if (LOG.isDebugEnabled())
                 LOG.debug("connecting to {} with protocols {}", remoteAddress, protocols);
 
-            QuicheConnection quicheConnection = QuicheConnection.connect(quicheConfig, remoteAddress);
+            QuicheConnection quicheConnection = QuicheConnection.connect(quicheConfig, getEndPoint().getLocalAddress(), remoteAddress);
             ClientQuicSession session = new ClientQuicSession(getExecutor(), getScheduler(), getByteBufferPool(), quicheConnection, this, remoteAddress, context);
             pendingSessions.put(remoteAddress, session);
             if (LOG.isDebugEnabled())
@@ -145,6 +149,13 @@ public class ClientQuicConnection extends QuicConnection
             }
         }
         return null;
+    }
+
+    @Override
+    protected void onFailure(Throwable failure)
+    {
+        pendingSessions.values().forEach(session -> outwardClose(session, failure));
+        super.onFailure(failure);
     }
 
     @Override

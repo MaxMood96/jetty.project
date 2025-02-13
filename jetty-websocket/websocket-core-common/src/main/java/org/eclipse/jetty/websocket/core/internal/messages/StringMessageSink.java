@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -47,26 +47,33 @@ public class StringMessageSink extends AbstractMessageSink
 
             if (out == null)
                 out = new Utf8StringBuilder(session.getInputBufferSize());
-
             out.append(frame.getPayload());
+
             if (frame.isFin())
+            {
                 methodHandle.invoke(out.toString());
+                reset();
+            }
 
             callback.succeeded();
             session.demand(1);
         }
         catch (Throwable t)
         {
+            reset();
             callback.failed(t);
         }
-        finally
-        {
-            if (frame.isFin())
-            {
-                // reset
-                size = 0;
-                out = null;
-            }
-        }
+    }
+
+    @Override
+    public void fail(Throwable failure)
+    {
+        reset();
+    }
+
+    private void reset()
+    {
+        out = null;
+        size = 0;
     }
 }

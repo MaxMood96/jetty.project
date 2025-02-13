@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -125,7 +125,7 @@ public abstract class HTTP3Session extends ContainerLifeCycle implements Session
 
         boolean failStreams = false;
         boolean sendGoAway = false;
-        try (AutoLock l = lock.lock())
+        try (AutoLock ignored = lock.lock())
         {
             switch (closeState)
             {
@@ -216,8 +216,7 @@ public abstract class HTTP3Session extends ContainerLifeCycle implements Session
                 long error = HTTP3ErrorCode.REQUEST_CANCELLED_ERROR.code();
                 String reason = "go_away";
                 failStreams(stream -> true, error, reason, true);
-                terminate();
-                outwardDisconnect(error, reason);
+                terminateAndDisconnect(error, reason);
             }
             return CompletableFuture.completedFuture(null);
         }
@@ -231,7 +230,7 @@ public abstract class HTTP3Session extends ContainerLifeCycle implements Session
     public CompletableFuture<Void> shutdown()
     {
         CompletableFuture<Void> result;
-        try (AutoLock l = lock.lock())
+        try (AutoLock ignored = lock.lock())
         {
             if (shutdown != null)
                 return shutdown;
@@ -287,7 +286,7 @@ public abstract class HTTP3Session extends ContainerLifeCycle implements Session
     private HTTP3Stream newHTTP3Stream(QuicStreamEndPoint endPoint, Consumer<Throwable> fail, boolean local)
     {
         Throwable failure = null;
-        try (AutoLock l = lock.lock())
+        try (AutoLock ignored = lock.lock())
         {
             if (closeState == CloseState.NOT_CLOSED)
                 streamCount.incrementAndGet();
@@ -349,7 +348,7 @@ public abstract class HTTP3Session extends ContainerLifeCycle implements Session
     {
         Map<Long, Long> settings = notifyPreface();
         if (LOG.isDebugEnabled())
-            LOG.debug("produced settings {} on {}", settings, this);
+            LOG.debug("application produced settings {} on {}", settings, this);
         return settings;
     }
 
@@ -369,32 +368,7 @@ public abstract class HTTP3Session extends ContainerLifeCycle implements Session
     @Override
     public void onSettings(SettingsFrame frame)
     {
-        if (LOG.isDebugEnabled())
-            LOG.debug("received {} on {}", frame, this);
-
-        frame.getSettings().forEach((key, value) ->
-        {
-            if (key == SettingsFrame.MAX_TABLE_CAPACITY)
-                onSettingMaxTableCapacity(value);
-            else if (key == SettingsFrame.MAX_FIELD_SECTION_SIZE)
-                onSettingMaxFieldSectionSize(value);
-            else if (key == SettingsFrame.MAX_BLOCKED_STREAMS)
-                onSettingMaxBlockedStreams(value);
-        });
-
         notifySettings(frame);
-    }
-
-    protected void onSettingMaxTableCapacity(long value)
-    {
-    }
-
-    protected void onSettingMaxFieldSectionSize(long value)
-    {
-    }
-
-    protected void onSettingMaxBlockedStreams(long value)
-    {
     }
 
     private void notifySettings(SettingsFrame frame)
@@ -435,7 +409,7 @@ public abstract class HTTP3Session extends ContainerLifeCycle implements Session
     }
 
     @Override
-    public void onHeaders(long streamId, HeadersFrame frame)
+    public void onHeaders(long streamId, HeadersFrame frame, boolean wasBlocked)
     {
         MetaData metaData = frame.getMetaData();
         if (metaData.isRequest() || metaData.isResponse())
@@ -480,7 +454,7 @@ public abstract class HTTP3Session extends ContainerLifeCycle implements Session
             LOG.debug("received {} on {}", frame, this);
 
         boolean failStreams = false;
-        try (AutoLock l = lock.lock())
+        try (AutoLock ignored = lock.lock())
         {
             switch (closeState)
             {
@@ -519,18 +493,12 @@ public abstract class HTTP3Session extends ContainerLifeCycle implements Session
                             goAwaySent = newGoAwayFrame(false);
                             GoAwayFrame goAwayFrame = goAwaySent;
                             zeroStreamsAction = () -> writeControlFrame(goAwayFrame, Callback.from(() ->
-                            {
-                                terminate();
-                                outwardDisconnect(HTTP3ErrorCode.NO_ERROR.code(), "go_away");
-                            }));
+                                terminateAndDisconnect(HTTP3ErrorCode.NO_ERROR.code(), "go_away")
+                            ));
                         }
                         else
                         {
-                            zeroStreamsAction = () ->
-                            {
-                                terminate();
-                                outwardDisconnect(HTTP3ErrorCode.NO_ERROR.code(), "go_away");
-                            };
+                            zeroStreamsAction = () -> terminateAndDisconnect(HTTP3ErrorCode.NO_ERROR.code(), "go_away");
                             failStreams = true;
                         }
                     }
@@ -591,7 +559,8 @@ public abstract class HTTP3Session extends ContainerLifeCycle implements Session
     public boolean onIdleTimeout()
     {
         boolean notify = false;
-        try (AutoLock l = lock.lock())
+        boolean terminate = false;
+        try (AutoLock ignored = lock.lock())
         {
             switch (closeState)
             {
@@ -608,15 +577,22 @@ public abstract class HTTP3Session extends ContainerLifeCycle implements Session
                 case CLOSING:
                 case CLOSED:
                 {
-                    if (LOG.isDebugEnabled())
-                        LOG.debug("already closed, ignored idle timeout for {}", this);
-                    return false;
+                    terminate = true;
+                    break;
                 }
                 default:
                 {
                     throw new IllegalStateException();
                 }
             }
+        }
+
+        if (terminate)
+        {
+            if (LOG.isDebugEnabled())
+                LOG.debug("already closed, ignored idle timeout for {}", this);
+            terminateAndDisconnect(HTTP3ErrorCode.NO_ERROR.code(), "idle_timeout");
+            return false;
         }
 
         boolean confirmed = true;
@@ -647,7 +623,7 @@ public abstract class HTTP3Session extends ContainerLifeCycle implements Session
     public void inwardClose(long error, String reason)
     {
         GoAwayFrame goAwayFrame = null;
-        try (AutoLock l = lock.lock())
+        try (AutoLock ignored = lock.lock())
         {
             switch (closeState)
             {
@@ -675,18 +651,15 @@ public abstract class HTTP3Session extends ContainerLifeCycle implements Session
         failStreams(stream -> true, error, reason, true);
 
         if (goAwayFrame != null)
-        {
-            writeControlFrame(goAwayFrame, Callback.from(() ->
-            {
-                terminate();
-                outwardDisconnect(error, reason);
-            }));
-        }
+            writeControlFrame(goAwayFrame, Callback.from(() -> terminateAndDisconnect(error, reason)));
         else
-        {
-            terminate();
-            outwardDisconnect(error, reason);
-        }
+            terminateAndDisconnect(error, reason);
+    }
+
+    private void terminateAndDisconnect(long error, String reason)
+    {
+        terminate();
+        outwardDisconnect(error, reason);
     }
 
     /**
@@ -751,7 +724,7 @@ public abstract class HTTP3Session extends ContainerLifeCycle implements Session
         streamTimeouts.destroy();
         // Notify the shutdown completable.
         CompletableFuture<Void> shutdown;
-        try (AutoLock l = lock.lock())
+        try (AutoLock ignored = lock.lock())
         {
             shutdown = this.shutdown;
         }
@@ -762,7 +735,7 @@ public abstract class HTTP3Session extends ContainerLifeCycle implements Session
     private void tryRunZeroStreamsAction()
     {
         Runnable action = null;
-        try (AutoLock l = lock.lock())
+        try (AutoLock ignored = lock.lock())
         {
             long count = streamCount.get();
             if (count > 0)
@@ -835,7 +808,7 @@ public abstract class HTTP3Session extends ContainerLifeCycle implements Session
         // A close at the QUIC level does not allow any
         // data to be sent, update the state and notify.
         boolean notifyFailure;
-        try (AutoLock l = lock.lock())
+        try (AutoLock ignored = lock.lock())
         {
             notifyFailure = closeState == CloseState.NOT_CLOSED;
             closeState = CloseState.CLOSED;

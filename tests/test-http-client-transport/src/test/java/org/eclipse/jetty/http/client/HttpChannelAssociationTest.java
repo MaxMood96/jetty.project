@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -183,7 +183,6 @@ public class HttpChannelAssociationTest extends AbstractTest<TransportScenario>
                 HTTP3Client http3Client = new HTTP3Client();
                 http3Client.getClientConnector().setSelectors(1);
                 http3Client.getClientConnector().setSslContextFactory(scenario.newClientSslContextFactory());
-                http3Client.getQuicConfiguration().setVerifyPeerCertificates(false);
                 return new HttpClientTransportOverHTTP3(http3Client)
                 {
                     @Override

@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -37,7 +37,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 import org.eclipse.jetty.client.api.AuthenticationStore;
@@ -74,6 +73,7 @@ import org.eclipse.jetty.util.ssl.SslContextFactory;
 import org.eclipse.jetty.util.thread.QueuedThreadPool;
 import org.eclipse.jetty.util.thread.ScheduledExecutorScheduler;
 import org.eclipse.jetty.util.thread.Scheduler;
+import org.eclipse.jetty.util.thread.Sweeper;
 import org.eclipse.jetty.util.thread.ThreadPool;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -142,12 +142,14 @@ public class HttpClient extends ContainerLifeCycle
     private boolean tcpNoDelay = true;
     private boolean strictEventOrdering = false;
     private HttpField encodingField;
-    private boolean removeIdleDestinations = false;
+    private long destinationIdleTimeout;
     private String name = getClass().getSimpleName() + "@" + Integer.toHexString(hashCode());
     private HttpCompliance httpCompliance = HttpCompliance.RFC7230;
     private String defaultRequestContentType = "application/octet-stream";
     private boolean useInputDirectByteBuffers = true;
     private boolean useOutputDirectByteBuffers = true;
+    private int maxResponseHeadersSize = -1;
+    private Sweeper destinationSweeper;
 
     /**
      * Creates a HttpClient instance that can perform HTTP/1.1 requests to non-TLS and TLS destinations.
@@ -193,7 +195,8 @@ public class HttpClient extends ContainerLifeCycle
         {
             QueuedThreadPool threadPool = new QueuedThreadPool();
             threadPool.setName(name);
-            setExecutor(threadPool);
+            executor = threadPool;
+            setExecutor(executor);
         }
         int maxBucketSize = executor instanceof ThreadPool.SizedThreadPool
             ? ((ThreadPool.SizedThreadPool)executor).getMaxThreads() / 2
@@ -205,10 +208,13 @@ public class HttpClient extends ContainerLifeCycle
             addBean(new ArrayRetainableByteBufferPool(0, 2048, 65536, maxBucketSize));
         Scheduler scheduler = getScheduler();
         if (scheduler == null)
-            setScheduler(new ScheduledExecutorScheduler(name + "-scheduler", false));
+        {
+            scheduler = new ScheduledExecutorScheduler(name + "-scheduler", false);
+            setScheduler(scheduler);
+        }
 
         if (resolver == null)
-            setSocketAddressResolver(new SocketAddressResolver.Async(getExecutor(), getScheduler(), getAddressResolutionTimeout()));
+            setSocketAddressResolver(new SocketAddressResolver.Async(getExecutor(), scheduler, getAddressResolutionTimeout()));
 
         handlers.put(new ContinueProtocolHandler());
         handlers.put(new RedirectProtocolHandler(this));
@@ -222,7 +228,14 @@ public class HttpClient extends ContainerLifeCycle
         cookieStore = cookieManager.getCookieStore();
 
         transport.setHttpClient(this);
+
         super.doStart();
+
+        if (getDestinationIdleTimeout() > 0L)
+        {
+            destinationSweeper = new Sweeper(scheduler, 1000L);
+            destinationSweeper.start();
+        }
     }
 
     private CookieManager newCookieManager()
@@ -233,13 +246,16 @@ public class HttpClient extends ContainerLifeCycle
     @Override
     protected void doStop() throws Exception
     {
+        if (destinationSweeper != null)
+        {
+            destinationSweeper.stop();
+            destinationSweeper = null;
+        }
+
         decoderFactories.clear();
         handlers.clear();
 
-        for (HttpDestination destination : destinations.values())
-        {
-            destination.close();
-        }
+        destinations.values().forEach(HttpDestination::close);
         destinations.clear();
 
         requestListeners.clear();
@@ -288,6 +304,11 @@ public class HttpClient extends ContainerLifeCycle
     CookieManager getCookieManager()
     {
         return cookieManager;
+    }
+
+    Sweeper getDestinationSweeper()
+    {
+        return destinationSweeper;
     }
 
     /**
@@ -442,59 +463,12 @@ public class HttpClient extends ContainerLifeCycle
 
     protected Request copyRequest(HttpRequest oldRequest, URI newURI)
     {
-        HttpRequest newRequest = newHttpRequest(oldRequest.getConversation(), newURI);
-        newRequest.method(oldRequest.getMethod())
-            .version(oldRequest.getVersion())
-            .body(oldRequest.getBody())
-            .idleTimeout(oldRequest.getIdleTimeout(), TimeUnit.MILLISECONDS)
-            .timeout(oldRequest.getTimeout(), TimeUnit.MILLISECONDS)
-            .followRedirects(oldRequest.isFollowRedirects())
-            .tag(oldRequest.getTag());
-        for (HttpField field : oldRequest.getHeaders())
-        {
-            HttpHeader header = field.getHeader();
-            // We have a new URI, so skip the host header if present.
-            if (HttpHeader.HOST == header)
-                continue;
-
-            // Remove expectation headers.
-            if (HttpHeader.EXPECT == header)
-                continue;
-
-            // Remove cookies.
-            if (HttpHeader.COOKIE == header)
-                continue;
-
-            // Remove authorization headers.
-            if (HttpHeader.AUTHORIZATION == header ||
-                HttpHeader.PROXY_AUTHORIZATION == header)
-                continue;
-
-            if (!newRequest.getHeaders().contains(field))
-                newRequest.addHeader(field);
-        }
-        return newRequest;
+        return oldRequest.copy(newURI);
     }
 
     protected HttpRequest newHttpRequest(HttpConversation conversation, URI uri)
     {
-        return new HttpRequest(this, conversation, checkHost(uri));
-    }
-
-    /**
-     * <p>Checks {@code uri} for the host to be non-null host.</p>
-     * <p>URIs built from strings that have an internationalized domain name (IDN)
-     * are parsed without errors, but {@code uri.getHost()} returns null.</p>
-     *
-     * @param uri the URI to check for non-null host
-     * @return the same {@code uri} if the host is non-null
-     * @throws IllegalArgumentException if the host is null
-     */
-    private URI checkHost(URI uri)
-    {
-        if (uri.getHost() == null)
-            throw new IllegalArgumentException(String.format("Invalid URI host: null (authority: %s)", uri.getRawAuthority()));
-        return uri;
+        return new HttpRequest(this, conversation, uri);
     }
 
     public Destination resolveDestination(Request request)
@@ -529,21 +503,28 @@ public class HttpClient extends ContainerLifeCycle
      */
     public HttpDestination resolveDestination(Origin origin)
     {
-        return destinations.computeIfAbsent(origin, o ->
+        return destinations.compute(origin, (k, v) ->
         {
-            HttpDestination destination = getTransport().newHttpDestination(o);
-            // Start the destination before it's published to other threads.
-            addManaged(destination);
-            if (LOG.isDebugEnabled())
-                LOG.debug("Created {}", destination);
-            return destination;
+            if (v == null || v.stale())
+            {
+                HttpDestination newDestination = getTransport().newHttpDestination(k);
+                // Start the destination before it's published to other threads.
+                addManaged(newDestination);
+                if (LOG.isDebugEnabled())
+                    LOG.debug("Created {}; existing: '{}'", newDestination, v);
+                return newDestination;
+            }
+            return v;
         });
     }
 
     protected boolean removeDestination(HttpDestination destination)
     {
+        boolean removed = destinations.remove(destination.getOrigin(), destination);
         removeBean(destination);
-        return destinations.remove(destination.getOrigin(), destination);
+        if (LOG.isDebugEnabled())
+            LOG.debug("Removed {}; result: {}", destination, removed);
+        return removed;
     }
 
     /**
@@ -874,16 +855,16 @@ public class HttpClient extends ContainerLifeCycle
     }
 
     /**
-     * @return the size of the buffer used to write requests
+     * @return the size of the buffer (in bytes) used to write requests
      */
-    @ManagedAttribute("The request buffer size")
+    @ManagedAttribute("The request buffer size in bytes")
     public int getRequestBufferSize()
     {
         return requestBufferSize;
     }
 
     /**
-     * @param requestBufferSize the size of the buffer used to write requests
+     * @param requestBufferSize the size of the buffer (in bytes) used to write requests
      */
     public void setRequestBufferSize(int requestBufferSize)
     {
@@ -891,9 +872,9 @@ public class HttpClient extends ContainerLifeCycle
     }
 
     /**
-     * @return the size of the buffer used to read responses
+     * @return the size of the buffer (in bytes) used to read responses
      */
-    @ManagedAttribute("The response buffer size")
+    @ManagedAttribute("The response buffer size in bytes")
     public int getResponseBufferSize()
     {
         return responseBufferSize;
@@ -1011,13 +992,49 @@ public class HttpClient extends ContainerLifeCycle
     }
 
     /**
+     * The default value is 0
+     * @return the time in ms after which idle destinations are removed
+     * @see #setDestinationIdleTimeout(long)
+     */
+    @ManagedAttribute("The time in ms after which idle destinations are removed, disabled when zero or negative")
+    public long getDestinationIdleTimeout()
+    {
+        return destinationIdleTimeout;
+    }
+
+    /**
+     * <p>
+     * Whether destinations that have no connections (nor active nor idle) and no exchanges
+     * should be removed after the specified timeout.
+     * </p>
+     * <p>
+     * If the specified {@code destinationIdleTimeout} is 0 or negative, then the destinations
+     * are not removed.
+     * </p>
+     * <p>
+     * Avoids accumulating destinations when applications (e.g. a spider bot or web crawler)
+     * hit a lot of different destinations that won't be visited again.
+     * </p>
+     *
+     * @param destinationIdleTimeout the time in ms after which idle destinations are removed
+     */
+    public void setDestinationIdleTimeout(long destinationIdleTimeout)
+    {
+        if (isStarted())
+            throw new IllegalStateException();
+        this.destinationIdleTimeout = destinationIdleTimeout;
+    }
+
+    /**
      * @return whether destinations that have no connections should be removed
      * @see #setRemoveIdleDestinations(boolean)
+     * @deprecated replaced by {@link #getDestinationIdleTimeout()}
      */
+    @Deprecated
     @ManagedAttribute("Whether idle destinations are removed")
     public boolean isRemoveIdleDestinations()
     {
-        return removeIdleDestinations;
+        return destinationIdleTimeout > 0L;
     }
 
     /**
@@ -1031,10 +1048,12 @@ public class HttpClient extends ContainerLifeCycle
      *
      * @param removeIdleDestinations whether destinations that have no connections should be removed
      * @see org.eclipse.jetty.client.DuplexConnectionPool
+     * @deprecated replaced by {@link #setDestinationIdleTimeout(long)}, calls the latter with a value of 10000 ms.
      */
+    @Deprecated
     public void setRemoveIdleDestinations(boolean removeIdleDestinations)
     {
-        this.removeIdleDestinations = removeIdleDestinations;
+        setDestinationIdleTimeout(removeIdleDestinations ? 10_000L : 0L);
     }
 
     /**
@@ -1110,6 +1129,23 @@ public class HttpClient extends ContainerLifeCycle
     public void setUseOutputDirectByteBuffers(boolean useOutputDirectByteBuffers)
     {
         this.useOutputDirectByteBuffers = useOutputDirectByteBuffers;
+    }
+
+    /**
+     * @return the max size in bytes of the response headers
+     */
+    @ManagedAttribute("The max size in bytes of the response headers")
+    public int getMaxResponseHeadersSize()
+    {
+        return maxResponseHeadersSize;
+    }
+
+    /**
+     * @param maxResponseHeadersSize the max size in bytes of the response headers
+     */
+    public void setMaxResponseHeadersSize(int maxResponseHeadersSize)
+    {
+        this.maxResponseHeadersSize = maxResponseHeadersSize;
     }
 
     /**

@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -50,7 +50,7 @@ public class ServerFCGIConnection extends AbstractConnection
     {
         super(endPoint, connector.getExecutor());
         this.connector = connector;
-        this.networkByteBufferPool = RetainableByteBufferPool.findOrAdapt(connector, connector.getByteBufferPool());
+        this.networkByteBufferPool = connector.getByteBufferPool().asRetainableByteBufferPool();
         this.flusher = new Flusher(endPoint);
         this.configuration = configuration;
         this.sendStatus200 = sendStatus200;

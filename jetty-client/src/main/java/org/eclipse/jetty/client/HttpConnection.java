@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -19,7 +19,6 @@ import java.net.URI;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 import org.eclipse.jetty.client.api.Authentication;
@@ -30,10 +29,10 @@ import org.eclipse.jetty.client.util.BytesRequestContent;
 import org.eclipse.jetty.http.HttpField;
 import org.eclipse.jetty.http.HttpFields;
 import org.eclipse.jetty.http.HttpHeader;
-import org.eclipse.jetty.http.HttpVersion;
 import org.eclipse.jetty.io.CyclicTimeouts;
 import org.eclipse.jetty.util.Attachable;
 import org.eclipse.jetty.util.HttpCookieStore;
+import org.eclipse.jetty.util.NanoTime;
 import org.eclipse.jetty.util.thread.AutoLock;
 import org.eclipse.jetty.util.thread.Scheduler;
 import org.slf4j.Logger;
@@ -48,13 +47,13 @@ public abstract class HttpConnection implements IConnection, Attachable
     private final RequestTimeouts requestTimeouts;
     private Object attachment;
     private int idleTimeoutGuard;
-    private long idleTimeoutStamp;
+    private long idleTimeoutNanoTime;
 
     protected HttpConnection(HttpDestination destination)
     {
         this.destination = destination;
         this.requestTimeouts = new RequestTimeouts(destination.getHttpClient().getScheduler());
-        this.idleTimeoutStamp = System.nanoTime();
+        this.idleTimeoutNanoTime = NanoTime.now();
     }
 
     public HttpClient getHttpClient()
@@ -106,6 +105,7 @@ public abstract class HttpConnection implements IConnection, Attachable
             SendFailure result;
             if (channel.associate(exchange))
             {
+                request.sent();
                 requestTimeouts.schedule(channel);
                 channel.send();
                 result = null;
@@ -121,7 +121,7 @@ public abstract class HttpConnection implements IConnection, Attachable
             try (AutoLock l = lock.lock())
             {
                 --idleTimeoutGuard;
-                idleTimeoutStamp = System.nanoTime();
+                idleTimeoutNanoTime = NanoTime.now();
             }
 
             return result;
@@ -150,21 +150,32 @@ public abstract class HttpConnection implements IConnection, Attachable
             request.path(path);
         }
 
+        boolean http1 = request.getVersion().getVersion() <= 11;
+
+        boolean applyProxyAuthentication = false;
         ProxyConfiguration.Proxy proxy = destination.getProxy();
-        if (proxy instanceof HttpProxy && !HttpClient.isSchemeSecure(request.getScheme()))
+        if (proxy instanceof HttpProxy)
         {
-            URI uri = request.getURI();
-            if (uri != null)
+            boolean tunnelled = ((HttpProxy)proxy).requiresTunnel(destination.getOrigin());
+
+            // RFC 9112, section 3.2.2: when making a request to a proxy other than CONNECT,
+            // the client must send the target URI in absolute-form as the request target.
+            // In practice, this is only valid for HTTP/1.1 requests that are not tunnelled.
+            if (http1 && !tunnelled)
             {
-                path = uri.toString();
-                request.path(path);
+                URI uri = request.getURI();
+                if (uri != null)
+                    request.path(uri.toString());
             }
+
+            // Do not send proxy authentication headers when tunnelled,
+            // otherwise proxy credentials arrive to the server.
+            applyProxyAuthentication = !tunnelled;
         }
 
-        // If we are HTTP 1.1, add the Host header
-        HttpVersion version = request.getVersion();
+        // If we are HTTP 1.1, add the Host header.
         HttpFields headers = request.getHeaders();
-        if (version.getVersion() <= 11)
+        if (http1)
         {
             if (!headers.contains(HttpHeader.HOST.asString()))
             {
@@ -176,7 +187,7 @@ public abstract class HttpConnection implements IConnection, Attachable
             }
         }
 
-        // Add content headers
+        // Add content headers.
         Request.Content content = request.getBody();
         if (content == null)
         {
@@ -203,7 +214,7 @@ public abstract class HttpConnection implements IConnection, Attachable
             }
         }
 
-        // Cookies
+        // Cookies.
         StringBuilder cookies = convertCookies(request.getCookies(), null);
         CookieStore cookieStore = getHttpClient().getCookieStore();
         if (cookieStore != null && cookieStore.getClass() != HttpCookieStore.Empty.class)
@@ -218,8 +229,9 @@ public abstract class HttpConnection implements IConnection, Attachable
             request.addHeader(cookieField);
         }
 
-        // Authentication
-        applyProxyAuthentication(request, proxy);
+        // Authentication.
+        if (applyProxyAuthentication)
+            applyProxyAuthentication(request, proxy);
         applyRequestAuthentication(request);
     }
 
@@ -267,7 +279,7 @@ public abstract class HttpConnection implements IConnection, Attachable
         {
             if (idleTimeoutGuard == 0)
             {
-                long elapsed = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - idleTimeoutStamp);
+                long elapsed = NanoTime.millisSince(idleTimeoutNanoTime);
                 boolean idle = elapsed > idleTimeout / 2;
                 if (idle)
                     idleTimeoutGuard = -1;
@@ -296,7 +308,7 @@ public abstract class HttpConnection implements IConnection, Attachable
         return attachment;
     }
 
-    protected void destroy()
+    public void destroy()
     {
         requestTimeouts.destroy();
     }

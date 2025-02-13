@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -61,6 +61,9 @@ public class StacklessLogging implements AutoCloseable
 
     public StacklessLogging(Class<?>... classesToSquelch)
     {
+        if (loggerFactory == null)
+            return;
+
         for (Class<?> clazz : classesToSquelch)
         {
             JettyLogger jettyLogger = loggerFactory.getJettyLogger(clazz.getName());
@@ -77,6 +80,9 @@ public class StacklessLogging implements AutoCloseable
 
     public StacklessLogging(Package... packagesToSquelch)
     {
+        if (loggerFactory == null)
+            return;
+
         for (Package pkg : packagesToSquelch)
         {
             JettyLogger jettyLogger = loggerFactory.getJettyLogger(pkg.getName());
@@ -93,6 +99,9 @@ public class StacklessLogging implements AutoCloseable
 
     public StacklessLogging(Logger... logs)
     {
+        if (loggerFactory == null)
+            return;
+
         for (Logger log : logs)
         {
             if (log instanceof JettyLogger && !log.isDebugEnabled())

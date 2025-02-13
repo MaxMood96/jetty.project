@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -13,9 +13,9 @@
 
 package org.eclipse.jetty.io;
 
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
+import org.eclipse.jetty.util.NanoTime;
 import org.eclipse.jetty.util.thread.TimerScheduler;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -126,8 +126,8 @@ public class IdleTimeoutTest
         assertNull(_expired);
         _timeout.setIdleTimeout(100);
 
-        long start = System.nanoTime();
-        while (_expired == null && TimeUnit.NANOSECONDS.toSeconds(System.nanoTime() - start) < 5)
+        long start = NanoTime.now();
+        while (_expired == null && NanoTime.secondsSince(start) < 5)
         {
             Thread.sleep(200);
         }

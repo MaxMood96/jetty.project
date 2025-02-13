@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -13,8 +13,7 @@
 
 package org.eclipse.jetty.util.ajax;
 
-import java.util.concurrent.TimeUnit;
-
+import org.eclipse.jetty.util.NanoTime;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -36,7 +35,7 @@ public class JSONPojoConvertorTest
         json.addConvertor(Baz.class, new JSONPojoConvertor(Baz.class));
 
         Foo foo = new Foo();
-        foo.setName("Foo @ " + TimeUnit.NANOSECONDS.toMillis(System.nanoTime()));
+        foo.setName("Foo @ " + NanoTime.now());
         foo.setInt1(1);
         foo.setInt2(2);
         foo.setLong1(1000001L);
@@ -76,7 +75,7 @@ public class JSONPojoConvertorTest
         json.addConvertor(Baz.class, new JSONPojoConvertor(Baz.class, new String[]{"boolean2"}));
 
         Foo foo = new Foo();
-        foo.setName("Foo @ " + TimeUnit.NANOSECONDS.toMillis(System.nanoTime()));
+        foo.setName("Foo @ " + NanoTime.now());
         foo.setInt1(1);
         foo.setInt2(2);
         foo.setLong1(1000001L);

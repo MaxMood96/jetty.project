@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -16,6 +16,7 @@ package org.eclipse.jetty.tests.distribution;
 import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileWriter;
+import java.io.IOException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -23,8 +24,11 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
+import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Queue;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -42,11 +46,13 @@ import org.eclipse.jetty.http3.client.http.HttpClientTransportOverHTTP3;
 import org.eclipse.jetty.io.ClientConnector;
 import org.eclipse.jetty.start.FS;
 import org.eclipse.jetty.tests.distribution.openid.OpenIdProvider;
-import org.eclipse.jetty.toolchain.test.PathAssert;
+import org.eclipse.jetty.tests.hometester.JettyHomeTester;
+import org.eclipse.jetty.toolchain.test.jupiter.WorkDirExtension;
 import org.eclipse.jetty.unixsocket.client.HttpClientTransportOverUnixSockets;
 import org.eclipse.jetty.unixsocket.server.UnixSocketConnector;
 import org.eclipse.jetty.util.BlockingArrayQueue;
 import org.eclipse.jetty.util.IO;
+import org.eclipse.jetty.util.StringUtil;
 import org.eclipse.jetty.util.ssl.SslContextFactory;
 import org.eclipse.jetty.websocket.api.Session;
 import org.eclipse.jetty.websocket.api.StatusCode;
@@ -54,25 +60,31 @@ import org.eclipse.jetty.websocket.api.WebSocketListener;
 import org.eclipse.jetty.websocket.client.WebSocketClient;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.DisabledForJreRange;
 import org.junit.jupiter.api.condition.DisabledOnJre;
 import org.junit.jupiter.api.condition.DisabledOnOs;
 import org.junit.jupiter.api.condition.EnabledForJreRange;
 import org.junit.jupiter.api.condition.JRE;
 import org.junit.jupiter.api.condition.OS;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
+import static org.awaitility.Awaitility.await;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.greaterThan;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
+import static org.hamcrest.Matchers.startsWith;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+@ExtendWith(WorkDirExtension.class)
 public class DistributionTests extends AbstractJettyHomeTest
 {
     @Test
@@ -101,6 +113,117 @@ public class DistributionTests extends AbstractJettyHomeTest
                 run2.stop();
                 assertTrue(run2.awaitFor(10, TimeUnit.SECONDS));
             }
+        }
+    }
+
+    @Test
+    public void testJettyConf() throws Exception
+    {
+        String jettyVersion = System.getProperty("jettyVersion");
+        JettyHomeTester distribution = JettyHomeTester.Builder.newInstance()
+            .jettyVersion(jettyVersion)
+            .mavenLocalRepository(System.getProperty("mavenRepoPath"))
+            .build();
+
+        try (JettyHomeTester.Run run1 = distribution.start("--add-modules=http"))
+        {
+            assertTrue(run1.awaitFor(10, TimeUnit.SECONDS));
+            assertEquals(0, run1.getExitValue());
+
+            Path pidfile = run1.getConfig().getJettyBase().resolve("jetty.pid");
+            Path statefile = run1.getConfig().getJettyBase().resolve("jetty.state");
+
+            int port = distribution.freePort();
+
+            List<String> args = new ArrayList<>();
+            args.add("jetty.http.port=" + port);
+            args.add("jetty.state=" + statefile);
+            args.add("jetty.pid=" + pidfile);
+
+            Path confFile = run1.getConfig().getJettyHome().resolve("etc/jetty.conf");
+            for (String line : Files.readAllLines(confFile, StandardCharsets.UTF_8))
+            {
+                if (line.startsWith("#") || StringUtil.isBlank(line))
+                    continue; // skip
+                args.add(line);
+            }
+
+            try (JettyHomeTester.Run run2 = distribution.start(args))
+            {
+                assertTrue(run2.awaitConsoleLogsFor("Started Server@", 10, TimeUnit.SECONDS));
+
+                assertTrue(Files.isRegularFile(pidfile), "PID file should exist");
+                assertTrue(Files.isRegularFile(statefile), "State file should exist");
+                String state = tail(statefile);
+                assertThat("State file", state, startsWith("STARTED "));
+
+                startHttpClient();
+                ContentResponse response = client.GET("http://localhost:" + port);
+                assertEquals(HttpStatus.NOT_FOUND_404, response.getStatus());
+            }
+
+            await().atMost(Duration.ofSeconds(10)).until(() -> !Files.exists(pidfile));
+            await().atMost(Duration.ofSeconds(10)).until(() -> tail(statefile).startsWith("STOPPED "));
+        }
+    }
+
+    /**
+     * Get the last line of the file.
+     *
+     * @param file the file to read from
+     * @return the string representing the last line of the file, or null if not found
+     */
+    private static String tail(Path file)
+    {
+        try
+        {
+            List<String> lines = Files.readAllLines(file, StandardCharsets.UTF_8);
+            if (lines.isEmpty())
+                return "";
+            return lines.get(lines.size() - 1);
+        }
+        catch (IOException e)
+        {
+            return "";
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    public void testPidFile(boolean includeJettyPidConfig) throws Exception
+    {
+        String jettyVersion = System.getProperty("jettyVersion");
+        JettyHomeTester distribution = JettyHomeTester.Builder.newInstance()
+            .jettyVersion(jettyVersion)
+            .mavenLocalRepository(System.getProperty("mavenRepoPath"))
+            .build();
+
+        try (JettyHomeTester.Run run1 = distribution.start("--add-modules=http,pid"))
+        {
+            assertTrue(run1.awaitFor(10, TimeUnit.SECONDS));
+            assertEquals(0, run1.getExitValue());
+
+            Path pidfile = run1.getConfig().getJettyBase().resolve("jetty.pid");
+
+            int port = distribution.freePort();
+
+            String[] args = new String[includeJettyPidConfig ? 2 : 1];
+            args[0] = "jetty.http.port=" + port;
+            if (includeJettyPidConfig)
+                args[1] = "jetty.pid=" + pidfile;
+
+            try (JettyHomeTester.Run run2 = distribution.start(args))
+            {
+                assertTrue(run2.awaitConsoleLogsFor("Started Server@", 10, TimeUnit.SECONDS));
+
+                assertTrue(Files.isRegularFile(pidfile), "PID file should exist");
+
+                startHttpClient();
+                ContentResponse response = client.GET("http://localhost:" + port);
+                assertEquals(HttpStatus.NOT_FOUND_404, response.getStatus());
+            }
+
+            await().atMost(Duration.ofSeconds(10)).until(() -> !Files.exists(pidfile));
         }
     }
 
@@ -205,7 +328,7 @@ public class DistributionTests extends AbstractJettyHomeTest
 
         String[] args1 = {
             "--approve-all-licenses",
-            "--add-modules=resources,server,http,webapp,deploy,jsp,jmx,servlet,servlets"
+            "--add-modules=resources,server,http,webapp,deploy,jsp,jstl,jmx,servlet,servlets"
         };
         try (JettyHomeTester.Run run1 = distribution.start(args1))
         {
@@ -229,6 +352,11 @@ public class DistributionTests extends AbstractJettyHomeTest
                 assertEquals(HttpStatus.OK_200, response.getStatus());
                 assertThat(response.getContentAsString(), containsString("JSP Examples"));
                 assertThat(response.getContentAsString(), not(containsString("<%")));
+
+                response = client.GET("http://localhost:" + port + "/test/jstl.jsp");
+                assertEquals(HttpStatus.OK_200, response.getStatus());
+                assertThat(response.getContentAsString(), containsString("JSTL Example"));
+                assertThat(response.getContentAsString(), not(containsString("<c:")));
             }
         }
     }
@@ -731,7 +859,7 @@ public class DistributionTests extends AbstractJettyHomeTest
             String message = "test-log-line";
             String xml = "" +
                 "<?xml version=\"1.0\"?>" +
-                "<!DOCTYPE Configure PUBLIC \"-//Jetty//Configure//EN\" \"https://www.eclipse.org/jetty/configure_10_0.dtd\">" +
+                "<!DOCTYPE Configure PUBLIC \"-//Jetty//Configure//EN\" \"https://jetty.org/configure_10_0.dtd\">" +
                 "<Configure>" +
                 "  <Call name=\"getLogger\" class=\"java.util.logging.Logger\">" +
                 "    <Arg>" + loggerName + "</Arg>" +
@@ -792,7 +920,7 @@ public class DistributionTests extends AbstractJettyHomeTest
             String nextProtocol = "fcgi/1.0";
             String xml = "" +
                 "<?xml version=\"1.0\"?>" +
-                "<!DOCTYPE Configure PUBLIC \"-//Jetty//Configure//EN\" \"https://www.eclipse.org/jetty/configure_10_0.dtd\">" +
+                "<!DOCTYPE Configure PUBLIC \"-//Jetty//Configure//EN\" \"https://jetty.org/configure_10_0.dtd\">" +
                 "<Configure id=\"sslConnector\" class=\"org.eclipse.jetty.server.ServerConnector\">" +
                 "  <Call name=\"addIfAbsentConnectionFactory\">" +
                 "    <Arg>" +
@@ -999,15 +1127,15 @@ public class DistributionTests extends AbstractJettyHomeTest
 
         try (JettyHomeTester.Run run1 = distribution.start("--add-module=https,test-keystore,ssl-ini"))
         {
-            assertTrue(run1.awaitFor(5, TimeUnit.SECONDS));
+            assertTrue(run1.awaitFor(20, TimeUnit.SECONDS));
             assertEquals(0, run1.getExitValue());
 
             // Override the property on the command line with the correct password.
             try (JettyHomeTester.Run run2 = distribution.start(pathProperty + "=cmdline"))
             {
-                assertTrue(run2.awaitConsoleLogsFor("Started Server@", 5, TimeUnit.SECONDS));
-                PathAssert.assertFileExists("${jetty.base}/cmdline", jettyBase.resolve("cmdline"));
-                PathAssert.assertNotPathExists("${jetty.base}/modbased", jettyBase.resolve("modbased"));
+                assertTrue(run2.awaitConsoleLogsFor("Started Server@", 20, TimeUnit.SECONDS));
+                assertTrue(Files.exists(jettyBase.resolve("cmdline")));
+                assertFalse(Files.exists(jettyBase.resolve("modbased")));
             }
         }
     }
@@ -1132,7 +1260,7 @@ public class DistributionTests extends AbstractJettyHomeTest
                 assertTrue(run2.awaitConsoleLogsFor("Started Server@", 10, TimeUnit.SECONDS));
 
                 HTTP3Client http3Client = new HTTP3Client();
-                http3Client.getQuicConfiguration().setVerifyPeerCertificates(false);
+                http3Client.getClientConnector().setSslContextFactory(new SslContextFactory.Client(true));
                 this.client = new HttpClient(new HttpClientTransportOverHTTP3(http3Client));
                 this.client.start();
                 ContentResponse response = this.client.newRequest("localhost", h3Port)
@@ -1221,12 +1349,188 @@ public class DistributionTests extends AbstractJettyHomeTest
                 assertThat(response.getStatus(), is(HttpStatus.OK_200));
                 content = response.getContentAsString();
                 assertThat(content, containsString("not authenticated"));
-
             }
         }
         finally
         {
             openIdProvider.stop();
+        }
+    }
+
+    @Test
+    public void testRequestLogFormatWithSpaces() throws Exception
+    {
+        Path jettyBase = newTestJettyBaseDirectory();
+        String jettyVersion = System.getProperty("jettyVersion");
+        JettyHomeTester distribution = JettyHomeTester.Builder.newInstance()
+            .jettyVersion(jettyVersion)
+            .jettyBase(jettyBase)
+            .mavenLocalRepository(System.getProperty("mavenRepoPath"))
+            .build();
+
+        String[] args1 = {"--add-module=server,http,deploy,requestlog"};
+        try (JettyHomeTester.Run run1 = distribution.start(args1))
+        {
+            assertTrue(run1.awaitFor(10, TimeUnit.SECONDS));
+            assertEquals(0, run1.getExitValue());
+
+            // Setup custom format string with spaces
+            Path requestLogIni = distribution.getJettyBase().resolve("start.d/requestlog.ini");
+            List<String> lines = List.of(
+                "--module=requestlog",
+                "jetty.requestlog.filePath=logs/test.request.log",
+                "jetty.requestlog.formatString=%{client}a - %u %{dd/MMM/yyyy:HH:mm:ss ZZZ|GMT}t [foo space here] \"%r\" %s %O \"%{Referer}i\" \"%{User-Agent}i\""
+            );
+            Files.write(requestLogIni, lines, StandardCharsets.UTF_8, StandardOpenOption.TRUNCATE_EXISTING);
+
+            int port = distribution.freePort();
+            String[] args2 = {
+                "jetty.http.port=" + port,
+                };
+            try (JettyHomeTester.Run run2 = distribution.start(args2))
+            {
+                assertTrue(run2.awaitConsoleLogsFor("Started Server@", 10, TimeUnit.SECONDS));
+                startHttpClient(false);
+
+                String uri = "http://localhost:" + port + "/test";
+
+                // Generate a request
+                ContentResponse response = client.GET(uri + "/");
+                // Don't really care about the result, as any request should be logged in the requestlog
+                // We are just asserting a status here to ensure that the request is complete
+                assertThat(response.getStatus(), is(HttpStatus.NOT_FOUND_404));
+
+                Path requestLog = distribution.getJettyBase().resolve("logs/test.request.log");
+                List<String> loggedLines = Files.readAllLines(requestLog, StandardCharsets.UTF_8);
+                for (String loggedLine : loggedLines)
+                {
+                    assertThat(loggedLine, containsString(" [foo space here] "));
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testDryRunProperties() throws Exception
+    {
+        Path jettyBase = newTestJettyBaseDirectory();
+        String jettyVersion = System.getProperty("jettyVersion");
+        JettyHomeTester distribution = JettyHomeTester.Builder.newInstance()
+            .jettyVersion(jettyVersion)
+            .jettyBase(jettyBase)
+            .mavenLocalRepository(System.getProperty("mavenRepoPath"))
+            .build();
+
+        String[] args1 = {"--add-to-start=server,logging-jetty"};
+        try (JettyHomeTester.Run run1 = distribution.start(args1))
+        {
+            assertTrue(run1.awaitFor(10, TimeUnit.SECONDS));
+            assertEquals(0, run1.getExitValue());
+
+            String[] args2 = {"--dry-run"};
+            try (JettyHomeTester.Run run2 = distribution.start(args2))
+            {
+                run2.awaitFor(5, TimeUnit.SECONDS);
+                Queue<String> logs = run2.getLogs();
+                assertThat(logs.size(), equalTo(1));
+                assertThat(logs.poll(), not(containsString("${jetty.home.uri}")));
+            }
+        }
+    }
+
+    @Test
+    @EnabledForJreRange(min = JRE.JAVA_19, max = JRE.JAVA_20)
+    public void testVirtualThreadPoolPreview() throws Exception
+    {
+        String jettyVersion = System.getProperty("jettyVersion");
+        JettyHomeTester distribution = JettyHomeTester.Builder.newInstance()
+            .jettyVersion(jettyVersion)
+            .mavenLocalRepository(System.getProperty("mavenRepoPath"))
+            .build();
+
+        try (JettyHomeTester.Run run1 = distribution.start("--add-modules=threadpool-virtual-preview,http"))
+        {
+            assertTrue(run1.awaitFor(10, TimeUnit.SECONDS));
+            assertEquals(0, run1.getExitValue());
+
+            int httpPort = distribution.freePort();
+            try (JettyHomeTester.Run run2 = distribution.start(List.of("jetty.http.selectors=1", "jetty.http.port=" + httpPort)))
+            {
+                assertTrue(run2.awaitConsoleLogsFor("Started Server@", 10, TimeUnit.SECONDS));
+
+                startHttpClient();
+                ContentResponse response = client.newRequest("localhost", httpPort)
+                    .timeout(15, TimeUnit.SECONDS)
+                    .send();
+                assertEquals(HttpStatus.NOT_FOUND_404, response.getStatus());
+            }
+        }
+    }
+
+    @Test
+    @DisabledForJreRange(max = JRE.JAVA_20)
+    public void testVirtualThreadPool() throws Exception
+    {
+        String jettyVersion = System.getProperty("jettyVersion");
+        JettyHomeTester distribution = JettyHomeTester.Builder.newInstance()
+            .jettyVersion(jettyVersion)
+            .mavenLocalRepository(System.getProperty("mavenRepoPath"))
+            .build();
+
+        try (JettyHomeTester.Run run1 = distribution.start("--add-modules=threadpool-virtual,http"))
+        {
+            assertTrue(run1.awaitFor(10, TimeUnit.SECONDS));
+            assertEquals(0, run1.getExitValue());
+
+            int httpPort = distribution.freePort();
+            try (JettyHomeTester.Run run2 = distribution.start(List.of("jetty.http.selectors=1", "jetty.http.port=" + httpPort)))
+            {
+                assertTrue(run2.awaitConsoleLogsFor("Started Server@", 10, TimeUnit.SECONDS));
+
+                startHttpClient();
+                ContentResponse response = client.newRequest("localhost", httpPort)
+                    .timeout(15, TimeUnit.SECONDS)
+                    .send();
+                assertEquals(HttpStatus.NOT_FOUND_404, response.getStatus());
+            }
+        }
+    }
+
+    @Test
+    public void testInetAccessHandler() throws Exception
+    {
+        String jettyVersion = System.getProperty("jettyVersion");
+        JettyHomeTester distribution = JettyHomeTester.Builder.newInstance()
+            .jettyVersion(jettyVersion)
+            .mavenLocalRepository(System.getProperty("mavenRepoPath"))
+            .build();
+
+        try (JettyHomeTester.Run run1 = distribution.start("--add-modules=inetaccess,http"))
+        {
+            assertTrue(run1.awaitFor(10, TimeUnit.SECONDS));
+            assertEquals(0, run1.getExitValue());
+
+            int httpPort = distribution.freePort();
+            List<String> args = List.of(
+                "jetty.inetaccess.exclude=|/excludedPath/*",
+                "jetty.http.port=" + httpPort);
+            try (JettyHomeTester.Run run2 = distribution.start(args))
+            {
+                assertTrue(run2.awaitConsoleLogsFor("Started Server@", 10, TimeUnit.SECONDS));
+                startHttpClient();
+
+                // Excluded path returns 403 response.
+                ContentResponse response = client.newRequest("http://localhost:" + httpPort + "/excludedPath")
+                    .timeout(15, TimeUnit.SECONDS)
+                    .send();
+                assertEquals(HttpStatus.FORBIDDEN_403, response.getStatus());
+
+                // Other paths return 404 response.
+                response = client.newRequest("http://localhost:" + httpPort + "/path")
+                    .timeout(15, TimeUnit.SECONDS)
+                    .send();
+                assertEquals(HttpStatus.NOT_FOUND_404, response.getStatus());
+            }
         }
     }
 }

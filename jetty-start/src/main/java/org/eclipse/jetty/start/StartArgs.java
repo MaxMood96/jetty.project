@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -54,6 +54,7 @@ public class StartArgs
     public static final String VERSION;
     public static final Set<String> ALL_PARTS = Set.of("java", "opts", "path", "main", "args");
     public static final Set<String> ARG_PARTS = Set.of("args");
+    public static final String ARG_ALLOW_INSECURE_HTTP_DOWNLOADS = "--allow-insecure-http-downloads";
 
     private static final String JETTY_VERSION_KEY = "jetty.version";
     private static final String JETTY_TAG_NAME_KEY = "jetty.tag.version";
@@ -207,6 +208,7 @@ public class StartArgs
     private boolean listConfig = false;
     private boolean version = false;
     private boolean dryRun = false;
+    private boolean multiLine = false;
     private final Set<String> dryRunParts = new HashSet<>();
     private boolean jpms = false;
     private boolean createStartD = false;
@@ -216,6 +218,7 @@ public class StartArgs
 
     private boolean exec = false;
     private String execProperties;
+    private boolean allowInsecureHttpDownloads = false;
     private boolean approveAllLicenses = false;
 
     public StartArgs(BaseHome baseHome)
@@ -646,7 +649,29 @@ public class StartArgs
         return classpath;
     }
 
+    /**
+     * @deprecated use {@link #getSelectedModules()} instead
+     */
+    @Deprecated
     public List<String> getEnabledModules()
+    {
+        return getSelectedModules();
+    }
+
+    /**
+     * <p>
+     * The list of selected Modules to enable based on configuration
+     * obtained from {@code start.d/*.ini}, {@code start.ini}, and command line.
+     * </p>
+     *
+     * <p>
+     *     For full list of enabled modules, use {@link Modules#getEnabled()}
+     * </p>
+     *
+     * @return the list of selected modules (by name) that the configuration has.
+     * @see Modules#getEnabled()
+     */
+    public List<String> getSelectedModules()
     {
         return this.modules;
     }
@@ -682,7 +707,7 @@ public class StartArgs
         if (parts.isEmpty())
             parts = ALL_PARTS;
 
-        CommandLineBuilder cmd = new CommandLineBuilder();
+        CommandLineBuilder cmd = new CommandLineBuilder(multiLine);
 
         // Special Stop/Shutdown properties
         ensureSystemPropertySet("STOP.PORT");
@@ -690,13 +715,13 @@ public class StartArgs
         ensureSystemPropertySet("STOP.WAIT");
 
         if (parts.contains("java"))
-            cmd.addRawArg(CommandLineBuilder.findJavaBin());
+            cmd.addArg(CommandLineBuilder.findJavaBin());
 
         if (parts.contains("opts"))
         {
-            cmd.addRawArg("-Djava.io.tmpdir=" + System.getProperty("java.io.tmpdir"));
-            cmd.addRawArg("-Djetty.home=" + baseHome.getHome());
-            cmd.addRawArg("-Djetty.base=" + baseHome.getBase());
+            cmd.addOption("-D", "java.io.tmpdir", System.getProperty("java.io.tmpdir"));
+            cmd.addOption("-D", "jetty.home", baseHome.getHome());
+            cmd.addOption("-D", "jetty.base", baseHome.getBase());
 
             for (String x : getJvmArgSources().keySet())
             {
@@ -707,11 +732,11 @@ public class StartArgs
                     String value = assign.length == 1 ? "" : assign[1];
 
                     Prop p = processSystemProperty(key, value, null);
-                    cmd.addRawArg("-D" + p.key + "=" + getProperties().expand(p.value));
+                    cmd.addOption("-D", p.key, properties.expand(p.value));
                 }
                 else
                 {
-                    cmd.addRawArg(getProperties().expand(x));
+                    cmd.addArg(getProperties().expand(x));
                 }
             }
 
@@ -719,7 +744,7 @@ public class StartArgs
             for (String propKey : systemPropertySource.keySet())
             {
                 String value = System.getProperty(propKey);
-                cmd.addEqualsArg("-D" + propKey, value);
+                cmd.addOption("-D", propKey, value);
             }
         }
 
@@ -732,60 +757,60 @@ public class StartArgs
                 List<File> files = dirsAndFiles.get(false);
                 if (files != null && !files.isEmpty())
                 {
-                    cmd.addRawArg("--module-path");
+                    cmd.addOption("--module-path");
                     String modules = files.stream()
                         .map(File::getAbsolutePath)
                         .collect(Collectors.joining(File.pathSeparator));
-                    cmd.addRawArg(modules);
+                    cmd.addArg(modules);
                 }
                 List<File> dirs = dirsAndFiles.get(true);
                 if (dirs != null && !dirs.isEmpty())
                 {
-                    cmd.addRawArg("--class-path");
+                    cmd.addOption("--class-path");
                     String directories = dirs.stream()
                         .map(File::getAbsolutePath)
                         .collect(Collectors.joining(File.pathSeparator));
-                    cmd.addRawArg(directories);
+                    cmd.addArg(directories);
                 }
 
                 if (!jmodAdds.isEmpty())
                 {
-                    cmd.addRawArg("--add-modules");
-                    cmd.addRawArg(String.join(",", jmodAdds));
+                    cmd.addOption("--add-modules");
+                    cmd.addArg(String.join(",", jmodAdds));
                 }
                 for (Map.Entry<String, Set<String>> entry : jmodPatch.entrySet())
                 {
-                    cmd.addRawArg("--patch-module");
-                    cmd.addRawArg(entry.getKey() + "=" + String.join(File.pathSeparator, entry.getValue()));
+                    cmd.addOption("--patch-module");
+                    cmd.addArg(entry.getKey(), String.join(File.pathSeparator, entry.getValue()));
                 }
                 for (Map.Entry<String, Set<String>> entry : jmodOpens.entrySet())
                 {
-                    cmd.addRawArg("--add-opens");
-                    cmd.addRawArg(entry.getKey() + "=" + String.join(",", entry.getValue()));
+                    cmd.addOption("--add-opens");
+                    cmd.addArg(entry.getKey(), String.join(",", entry.getValue()));
                 }
                 for (Map.Entry<String, Set<String>> entry : jmodExports.entrySet())
                 {
-                    cmd.addRawArg("--add-exports");
-                    cmd.addRawArg(entry.getKey() + "=" + String.join(",", entry.getValue()));
+                    cmd.addOption("--add-exports");
+                    cmd.addArg(entry.getKey(), String.join(",", entry.getValue()));
                 }
                 for (Map.Entry<String, Set<String>> entry : jmodReads.entrySet())
                 {
-                    cmd.addRawArg("--add-reads");
-                    cmd.addRawArg(entry.getKey() + "=" + String.join(",", entry.getValue()));
+                    cmd.addOption("--add-reads");
+                    cmd.addArg(entry.getKey(), String.join(",", entry.getValue()));
                 }
             }
             else
             {
-                cmd.addRawArg("--class-path");
-                cmd.addRawArg(classpath.toString());
+                cmd.addOption("--class-path");
+                cmd.addArg(classpath.toString());
             }
         }
 
         if (parts.contains("main"))
         {
             if (isJPMS())
-                cmd.addRawArg("--module");
-            cmd.addRawArg(getMainClassname());
+                cmd.addOption("--module");
+            cmd.addArg(getMainClassname());
         }
 
         // pass properties as args or as a file
@@ -795,7 +820,8 @@ public class StartArgs
             {
                 for (Prop p : properties)
                 {
-                    cmd.addRawArg(CommandLineBuilder.quote(p.key) + "=" + CommandLineBuilder.quote(p.value));
+                    if (!p.key.startsWith("java.version."))
+                        cmd.addArg(p.key, properties.expand(p.value));
                 }
             }
             else if (properties.size() > 0)
@@ -813,17 +839,17 @@ public class StartArgs
                 {
                     properties.store(out, "start.jar properties");
                 }
-                cmd.addRawArg(propPath.toAbsolutePath().toString());
+                cmd.addArg(propPath.toAbsolutePath().toString());
             }
 
             for (Path xml : xmls)
             {
-                cmd.addRawArg(xml.toAbsolutePath().toString());
+                cmd.addArg(xml.toAbsolutePath().toString());
             }
 
             for (Path propertyFile : propertyFiles)
             {
-                cmd.addRawArg(propertyFile.toAbsolutePath().toString());
+                cmd.addArg(propertyFile.toAbsolutePath().toString());
             }
         }
 
@@ -936,6 +962,11 @@ public class StartArgs
             return true;
         }
         return false;
+    }
+
+    public boolean isAllowInsecureHttpDownloads()
+    {
+        return allowInsecureHttpDownloads;
     }
 
     public boolean isApproveAllLicenses()
@@ -1196,6 +1227,12 @@ public class StartArgs
             int colon = arg.indexOf('=');
             for (String part : arg.substring(colon + 1).split(","))
             {
+                if ("multiline".equalsIgnoreCase(part))
+                {
+                    multiLine = true;
+                    continue;
+                }
+
                 if (!ALL_PARTS.contains(part))
                     throw new UsageException(UsageException.ERR_BAD_ARG, "Unrecognized --dry-run=\"%s\" in %s", part, source);
 
@@ -1219,6 +1256,13 @@ public class StartArgs
             execProperties = Props.getValue(arg);
             if (!execProperties.endsWith(".properties"))
                 throw new UsageException(UsageException.ERR_BAD_ARG, "--exec-properties filename must have .properties suffix: %s", execProperties);
+            return;
+        }
+
+        // Allow insecure-http downloads
+        if (ARG_ALLOW_INSECURE_HTTP_DOWNLOADS.equals(arg))
+        {
+            allowInsecureHttpDownloads = true;
             return;
         }
 
@@ -1315,11 +1359,11 @@ public class StartArgs
             return;
         }
 
-        // Enable a module
+        // Select a module to eventually be enabled
         if (arg.startsWith("--module="))
         {
             List<String> moduleNames = Props.getValues(arg);
-            enableModules(source, moduleNames);
+            selectModules(source, moduleNames);
             return;
         }
 
@@ -1464,7 +1508,7 @@ public class StartArgs
         setProperty(key, value, source);
     }
 
-    private void enableModules(String source, List<String> moduleNames)
+    private void selectModules(String source, List<String> moduleNames)
     {
         for (String moduleName : moduleNames)
         {

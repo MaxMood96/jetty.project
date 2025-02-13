@@ -28,14 +28,6 @@
     Default web.xml file.  
     This file is applied to a Web application before its own WEB_INF/web.xml file
   </description>
-
-  <!-- ==================================================================== -->
-  <!-- Removes static references to beans from javax.el.BeanELResolver to   -->
-  <!-- ensure webapp classloader can be released on undeploy                -->
-  <!-- ==================================================================== -->
-  <listener>
-   <listener-class>org.eclipse.jetty.servlet.listener.ELContextCleaner</listener-class>
-  </listener>
   
   <!-- ==================================================================== -->
   <!-- Removes static cache of Methods from java.beans.Introspector to      -->
@@ -195,7 +187,7 @@
   <!-- The JSP page compiler and execution servlet, which is the mechanism  -->
   <!-- used by the jsp container to support JSP pages.  Traditionally,      -->
   <!-- this servlet is mapped to URL pattern "*.jsp".                       -->
-  <!-- See http://https://www.eclipse.org/jetty/documentation/              -->
+  <!-- See https://eclipse.dev/jetty/documentation/                         -->
   <!-- for applicable configuration params.                                 -->
   <!-- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  -->
   <servlet id="jsp">

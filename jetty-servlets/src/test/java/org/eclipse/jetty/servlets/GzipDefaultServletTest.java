@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -17,6 +17,8 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 import javax.servlet.ServletException;
@@ -28,7 +30,9 @@ import org.eclipse.jetty.http.DateGenerator;
 import org.eclipse.jetty.http.HttpStatus;
 import org.eclipse.jetty.http.HttpTester;
 import org.eclipse.jetty.http.HttpVersion;
+import org.eclipse.jetty.server.HttpChannel;
 import org.eclipse.jetty.server.LocalConnector;
+import org.eclipse.jetty.server.Request;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.handler.gzip.GzipHandler;
 import org.eclipse.jetty.servlet.DefaultServlet;
@@ -52,6 +56,7 @@ import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.nullValue;
 import static org.hamcrest.Matchers.startsWith;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Test the GzipHandler support when working with the {@link DefaultServlet}.
@@ -76,6 +81,17 @@ public class GzipDefaultServletTest extends AbstractGzipTest
         server = new Server();
         LocalConnector localConnector = new LocalConnector(server);
         server.addConnector(localConnector);
+
+        CountDownLatch latch = new CountDownLatch(1);
+
+        localConnector.addBean(new HttpChannel.Listener()
+        {
+            @Override
+            public void onComplete(Request request)
+            {
+                latch.countDown();
+            }
+        });
 
         Path contextDir = workDir.resolve("context");
         FS.ensureDirExists(contextDir);
@@ -121,6 +137,10 @@ public class GzipDefaultServletTest extends AbstractGzipTest
         assertThat("Response[ETag]", response.get("ETag"), containsString(CompressedContentFormat.GZIP.getEtagSuffix()));
 
         assertThat("Response[Content-Length]", response.get("Content-Length"), is(nullValue()));
+
+        // allow server to finish sending body (for HEAD, server.stop() races with the gzip writing thread)
+        assertTrue(latch.await(5, TimeUnit.SECONDS));
+
         // A HEAD request should have similar headers, but no body
         if (!method.equals("HEAD"))
         {
@@ -305,8 +325,8 @@ public class GzipDefaultServletTest extends AbstractGzipTest
         request.setHeader("Host", "tester");
         request.setHeader("Connection", "close");
         request.setHeader("Accept-Encoding", "gzip");
-        long fourSecondsAgo = TimeUnit.NANOSECONDS.toMillis(System.nanoTime()) - 4000;
-        request.setHeader("If-Modified-Since", DateGenerator.formatDate(fourSecondsAgo));
+        Instant fourSecondsAgo = Instant.now().minusSeconds(4);
+        request.setHeader("If-Modified-Since", DateGenerator.formatDate(fourSecondsAgo.toEpochMilli()));
         request.setURI("/context/file.txt");
 
         // Issue request

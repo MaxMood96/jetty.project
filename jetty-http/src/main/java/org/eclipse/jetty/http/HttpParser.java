@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -24,7 +24,9 @@ import java.util.Map;
 
 import org.eclipse.jetty.http.HttpTokens.EndOfContent;
 import org.eclipse.jetty.util.BufferUtil;
+import org.eclipse.jetty.util.HostPort;
 import org.eclipse.jetty.util.Index;
+import org.eclipse.jetty.util.NanoTime;
 import org.eclipse.jetty.util.StringUtil;
 import org.eclipse.jetty.util.Utf8StringBuilder;
 import org.slf4j.Logger;
@@ -33,10 +35,12 @@ import org.slf4j.LoggerFactory;
 import static org.eclipse.jetty.http.HttpCompliance.RFC7230;
 import static org.eclipse.jetty.http.HttpCompliance.Violation;
 import static org.eclipse.jetty.http.HttpCompliance.Violation.CASE_SENSITIVE_FIELD_NAME;
+import static org.eclipse.jetty.http.HttpCompliance.Violation.DUPLICATE_HOST_HEADERS;
 import static org.eclipse.jetty.http.HttpCompliance.Violation.HTTP_0_9;
 import static org.eclipse.jetty.http.HttpCompliance.Violation.MULTIPLE_CONTENT_LENGTHS;
 import static org.eclipse.jetty.http.HttpCompliance.Violation.NO_COLON_AFTER_FIELD_NAME;
 import static org.eclipse.jetty.http.HttpCompliance.Violation.TRANSFER_ENCODING_WITH_CONTENT_LENGTH;
+import static org.eclipse.jetty.http.HttpCompliance.Violation.UNSAFE_HOST_HEADER;
 import static org.eclipse.jetty.http.HttpCompliance.Violation.WHITESPACE_AFTER_FIELD_NAME;
 
 /**
@@ -226,7 +230,7 @@ public class HttpParser
     private String _valueString;
     private int _responseStatus;
     private int _headerBytes;
-    private boolean _host;
+    private String _parsedHost;
     private boolean _headerComplete;
     private volatile State _state = State.START;
     private volatile FieldState _fieldState = FieldState.FIELD;
@@ -246,6 +250,7 @@ public class HttpParser
     private ByteBuffer _contentChunk;
     private int _length;
     private final StringBuilder _string = new StringBuilder();
+    private long _beginNanoTime = Long.MIN_VALUE;
 
     private static HttpCompliance compliance()
     {
@@ -295,6 +300,11 @@ public class HttpParser
         _maxHeaderBytes = maxHeaderBytes;
         _complianceMode = compliance;
         _complianceListener = (ComplianceViolation.Listener)(_handler instanceof ComplianceViolation.Listener ? _handler : null);
+    }
+
+    public long getBeginNanoTime()
+    {
+        return _beginNanoTime;
     }
 
     public HttpHandler getHandler()
@@ -438,8 +448,7 @@ public class HttpParser
     private HttpTokens.Token next(ByteBuffer buffer)
     {
         byte ch = buffer.get();
-
-        HttpTokens.Token t = HttpTokens.TOKENS[0xff & ch];
+        HttpTokens.Token t = HttpTokens.getToken(ch);
 
         switch (t.getType())
         {
@@ -487,7 +496,7 @@ public class HttpParser
     /* Quick lookahead for the start state looking for a request method or an HTTP version,
      * otherwise skip white space until something else to parse.
      */
-    private boolean quickStart(ByteBuffer buffer)
+    private void quickStart(ByteBuffer buffer)
     {
         if (_requestHandler != null)
         {
@@ -498,7 +507,7 @@ public class HttpParser
                 buffer.position(buffer.position() + _methodString.length() + 1);
 
                 setState(State.SPACE1);
-                return false;
+                return;
             }
         }
         else if (_responseHandler != null)
@@ -508,7 +517,7 @@ public class HttpParser
             {
                 buffer.position(buffer.position() + _version.asString().length() + 1);
                 setState(State.SPACE1);
-                return false;
+                return;
             }
         }
 
@@ -529,7 +538,7 @@ public class HttpParser
                     _string.setLength(0);
                     _string.append(t.getChar());
                     setState(_requestHandler != null ? State.METHOD : State.RESPONSE_VERSION);
-                    return false;
+                    return;
                 }
                 case OTEXT:
                 case SPACE:
@@ -547,7 +556,6 @@ public class HttpParser
                 throw new BadMessageException(HttpStatus.BAD_REQUEST_400);
             }
         }
-        return false;
     }
 
     private void setString(String s)
@@ -968,22 +976,19 @@ public class HttpParser
                     case CONTENT_LENGTH:
                         if (_hasTransferEncoding)
                             checkViolation(TRANSFER_ENCODING_WITH_CONTENT_LENGTH);
-
+                        long contentLength = convertContentLength(_valueString);
                         if (_hasContentLength)
                         {
                             checkViolation(MULTIPLE_CONTENT_LENGTHS);
-                            if (convertContentLength(_valueString) != _contentLength)
+                            if (contentLength != _contentLength)
                                 throw new BadMessageException(HttpStatus.BAD_REQUEST_400, MULTIPLE_CONTENT_LENGTHS.getDescription());
                         }
                         _hasContentLength = true;
 
                         if (_endOfContent != EndOfContent.CHUNKED_CONTENT)
                         {
-                            _contentLength = convertContentLength(_valueString);
-                            if (_contentLength <= 0)
-                                _endOfContent = EndOfContent.NO_CONTENT;
-                            else
-                                _endOfContent = EndOfContent.CONTENT_LENGTH;
+                            _contentLength = contentLength;
+                            _endOfContent = EndOfContent.CONTENT_LENGTH;
                         }
                         break;
 
@@ -1028,12 +1033,27 @@ public class HttpParser
                         break;
 
                     case HOST:
-                        _host = true;
+                        if (_parsedHost != null)
+                        {
+                            if (LOG.isWarnEnabled())
+                                LOG.warn("Encountered multiple `Host` headers.  Previous `Host` header already seen as `{}`, new `Host` header has appeared as `{}`", _parsedHost, _valueString);
+                            checkViolation(DUPLICATE_HOST_HEADERS);
+                        }
+                        _parsedHost = _valueString;
                         if (!(_field instanceof HostPortHttpField) && _valueString != null && !_valueString.isEmpty())
                         {
-                            _field = new HostPortHttpField(_header,
-                                CASE_SENSITIVE_FIELD_NAME.isAllowedBy(_complianceMode) ? _headerString : _header.asString(),
-                                _valueString);
+                            if (UNSAFE_HOST_HEADER.isAllowedBy(_complianceMode))
+                            {
+                                _field = new HostPortHttpField(_header,
+                                    CASE_SENSITIVE_FIELD_NAME.isAllowedBy(_complianceMode) ? _headerString : _header.asString(),
+                                    HostPort.unsafe(_valueString));
+                            }
+                            else
+                            {
+                                _field = new HostPortHttpField(_header,
+                                    CASE_SENSITIVE_FIELD_NAME.isAllowedBy(_complianceMode) ? _headerString : _header.asString(),
+                                    _valueString);
+                            }
                             addToFieldCache = _fieldCache.isEnabled();
                         }
                         break;
@@ -1070,6 +1090,8 @@ public class HttpParser
                     _fieldCache.add(_field);
                 }
             }
+            if (LOG.isDebugEnabled())
+                LOG.debug("parsedHeader({}) header={}, headerString=[{}], valueString=[{}]", _field, _header, _headerString, _valueString);
             _handler.parsedHeader(_field != null ? _field : new HttpField(_header, _headerString, _valueString));
         }
 
@@ -1091,15 +1113,21 @@ public class HttpParser
 
     private long convertContentLength(String valueString)
     {
-        try
+        if (valueString == null || valueString.length() == 0)
+            throw new BadMessageException("Invalid Content-Length Value", new NumberFormatException());
+
+        long value = 0;
+        int length = valueString.length();
+
+        for (int i = 0; i < length; i++)
         {
-            return Long.parseLong(valueString);
+            char c = valueString.charAt(i);
+            if (c < '0' || c > '9')
+                throw new BadMessageException("Invalid Content-Length Value", new NumberFormatException());
+
+            value = Math.addExact(Math.multiplyExact(value, 10), c - '0');
         }
-        catch (NumberFormatException e)
-        {
-            LOG.trace("IGNORED", e);
-            throw new BadMessageException(HttpStatus.BAD_REQUEST_400, "Invalid Content-Length Value", e);
-        }
+        return value;
     }
 
     /*
@@ -1181,7 +1209,7 @@ public class HttpParser
                             }
 
                             // Was there a required host header?
-                            if (!_host && _version == HttpVersion.HTTP_1_1 && _requestHandler != null)
+                            if (_parsedHost == null && _version == HttpVersion.HTTP_1_1 && _requestHandler != null)
                             {
                                 throw new BadMessageException(HttpStatus.BAD_REQUEST_400, "No Host");
                             }
@@ -1496,12 +1524,13 @@ public class HttpParser
                 _methodString = null;
                 _endOfContent = EndOfContent.UNKNOWN_CONTENT;
                 _header = null;
-                if (quickStart(buffer))
-                    return true;
+                if (buffer.hasRemaining())
+                    _beginNanoTime = NanoTime.now();
+                quickStart(buffer);
             }
 
             // Request/response line
-            if (_state.ordinal() >= State.START.ordinal() && _state.ordinal() < State.HEADER.ordinal())
+            if (_state.ordinal() < State.HEADER.ordinal())
             {
                 if (parseLine(buffer))
                     return true;
@@ -1886,7 +1915,7 @@ public class HttpParser
         _responseStatus = 0;
         _contentChunk = null;
         _headerBytes = 0;
-        _host = false;
+        _parsedHost = null;
         _headerComplete = false;
     }
 
@@ -2000,7 +2029,6 @@ public class HttpParser
         void startResponse(HttpVersion version, int status, String reason);
     }
 
-    @SuppressWarnings("serial")
     private static class IllegalCharacterException extends BadMessageException
     {
         private IllegalCharacterException(State state, HttpTokens.Token token, ByteBuffer buffer)

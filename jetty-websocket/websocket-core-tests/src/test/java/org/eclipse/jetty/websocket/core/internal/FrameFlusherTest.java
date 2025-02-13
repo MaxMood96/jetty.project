@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -100,7 +100,7 @@ public class FrameFlusherTest
     /**
      * Ensure that FrameFlusher honors the correct order of websocket frames.
      *
-     * @see <a href="https://github.com/eclipse/jetty.project/issues/2491">eclipse/jetty.project#2491</a>
+     * @see <a href="https://github.com/jetty/jetty.project/issues/2491">eclipse/jetty.project#2491</a>
      */
     @Test
     public void testLargeSmallText() throws ExecutionException, InterruptedException

@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -13,6 +13,7 @@
 
 package org.eclipse.jetty.xml;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.annotation.Annotation;
@@ -30,8 +31,6 @@ import java.net.URL;
 import java.net.UnknownHostException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.security.AccessController;
-import java.security.PrivilegedExceptionAction;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -120,28 +119,63 @@ public class XmlConfiguration
                     Class<?> t2 = p2[i].getType();
                     if (t1 != t2)
                     {
-                        // Favour derived type over base type
-                        compare = Boolean.compare(t1.isAssignableFrom(t2), t2.isAssignableFrom(t1));
+                        // prefer primitives
+                        compare = Boolean.compare(t2.isPrimitive(), t1.isPrimitive());
                         if (compare == 0)
                         {
-                            // favour primitive type over reference
-                            compare = Boolean.compare(!t1.isPrimitive(), !t2.isPrimitive());
-                            if (compare == 0)
-                                // Use name to avoid non determinant sorting
-                                compare = t1.getName().compareTo(t2.getName());
-                        }
+                            // prefer interfaces
+                            compare = Boolean.compare(t2.isInterface(), t1.isInterface());
 
-                        // break on the first different parameter (should always be true)
-                        if (compare != 0)
-                            break;
+                            if (compare == 0)
+                            {
+                                // prefer most derived
+                                int d1 = calculateDepth(t1);
+                                int d2 = calculateDepth(t2);
+                                compare = Integer.compare(d2, d1);
+                            }
+                        }
                     }
+                    // break on the first different parameter
+                    if (compare != 0)
+                        break;
                 }
             }
-            compare = Math.min(1, Math.max(compare, -1));
         }
 
-        return compare;
+        // failsafe is to compare on the generic string
+        if (compare == 0)
+            compare = e1.toGenericString().compareTo(e2.toGenericString());
+
+        // Return normalized to -1, 0, 1
+        return Integer.compare(compare, 0);
     };
+
+    private static int calculateDepth(Class<?> c)
+    {
+        int depth = 0;
+
+        if (c.isPrimitive())
+            return Integer.MIN_VALUE;
+
+        if (c.isInterface())
+        {
+            Set<Class<?>> interfaces = Set.of(c);
+            while (!interfaces.isEmpty())
+            {
+                depth++;
+                interfaces = interfaces.stream().flatMap(i -> Arrays.stream(i.getInterfaces())).collect(Collectors.toSet());
+            }
+        }
+        else
+        {
+            while (c != Object.class && !c.isPrimitive())
+            {
+                depth++;
+                c = c.getSuperclass();
+            }
+        }
+        return depth;
+    }
 
     /**
      * Set the standard IDs and properties expected in a jetty XML file:
@@ -200,7 +234,7 @@ public class XmlConfiguration
     private final String _dtd;
     private ConfigurationProcessor _processor;
 
-    ConfigurationParser getParser()
+    public XmlParser getXmlParser()
     {
         Pool<ConfigurationParser>.Entry entry = __parsers.acquire(ConfigurationParser::new);
         if (entry == null)
@@ -217,11 +251,17 @@ public class XmlConfiguration
      */
     public XmlConfiguration(Resource resource) throws SAXException, IOException
     {
-        try (ConfigurationParser parser = getParser(); InputStream inputStream = resource.getInputStream())
+        XmlParser parser = getXmlParser();
+        try (InputStream inputStream = resource.getInputStream())
         {
             _location = resource;
             setConfig(parser.parse(inputStream));
             _dtd = parser.getDTD();
+        }
+        finally
+        {
+            if (parser instanceof Closeable)
+                ((Closeable)parser).close();
         }
     }
 
@@ -493,7 +533,7 @@ public class XmlConfiguration
                 }
                 catch (Exception e)
                 {
-                    LOG.warn("Config error {} at {} in {}", e.toString(), node, _configuration);
+                    LOG.warn("Config error {} at {} in {}", e, node, _configuration);
                     throw e;
                 }
             }
@@ -522,9 +562,7 @@ public class XmlConfiguration
             String propertyValue = null;
 
             Class<?> oClass = nodeClass(node);
-            if (oClass != null)
-                obj = null;
-            else
+            if (oClass == null)
                 oClass = obj.getClass();
 
             // Look for a property value
@@ -553,9 +591,9 @@ public class XmlConfiguration
                 value = propertyValue;
             Object[] arg = {value};
 
-            Class<?>[] vClass = {Object.class};
+            Class<?> vClass = Object.class;
             if (value != null)
-                vClass[0] = value.getClass();
+                vClass = value.getClass();
 
             if (LOG.isDebugEnabled())
                 LOG.debug("XML {}.{} ({})", (obj != null ? obj.toString() : oClass.getName()), setter, value);
@@ -582,8 +620,8 @@ public class XmlConfiguration
                 // Try for native match
                 try
                 {
-                    Field type = vClass[0].getField("TYPE");
-                    vClass[0] = (Class<?>)type.get(null);
+                    Field type = vClass.getField("TYPE");
+                    vClass = (Class<?>)type.get(null);
                     Method set = oClass.getMethod(setter, vClass);
                     invokeMethod(set, obj, arg);
                     return;
@@ -715,7 +753,7 @@ public class XmlConfiguration
             }
 
             // No Joy
-            String message = oClass + "." + setter + "(" + vClass[0] + ")";
+            String message = oClass + "." + setter + "(" + vClass + ")";
             if (types != null)
                 message += ". Found setters for " + types;
             NoSuchMethodException failure = new NoSuchMethodException(message);
@@ -828,19 +866,11 @@ public class XmlConfiguration
 
             Class<?> oClass;
             if (clazz != null)
-            {
-                // static call
                 oClass = Loader.loadClass(clazz);
-                obj = null;
-            }
             else if (obj != null)
-            {
                 oClass = obj.getClass();
-            }
             else
-            {
                 throw new IllegalArgumentException(node.toString());
-            }
 
             if (LOG.isDebugEnabled())
                 LOG.debug("XML get {}", name);
@@ -906,19 +936,11 @@ public class XmlConfiguration
 
             Class<?> oClass;
             if (clazz != null)
-            {
-                // static call
                 oClass = Loader.loadClass(clazz);
-                obj = null;
-            }
             else if (obj != null)
-            {
                 oClass = obj.getClass();
-            }
             else
-            {
                 throw new IllegalArgumentException(node.toString());
-            }
 
             if (LOG.isDebugEnabled())
                 LOG.debug("XML call {}", name);
@@ -945,19 +967,17 @@ public class XmlConfiguration
                 throw new IllegalArgumentException("Method name cannot be blank");
 
             // Lets just try all methods for now
+            Method[] methods = Arrays.stream(oClass.getMethods())
+                .filter(m -> m.getName().equals(methodName))
+                .sorted(EXECUTABLE_COMPARATOR)
+                .toArray(Method[]::new);
 
-            Method[] methods = oClass.getMethods();
-            Arrays.sort(methods, EXECUTABLE_COMPARATOR);
             for (Method method : methods)
             {
                 if (!method.getName().equals(methodName))
                     continue;
                 Object[] arguments = args.applyTo(method);
                 if (arguments == null)
-                    continue;
-                if (Modifier.isStatic(method.getModifiers()) != (obj == null))
-                    continue;
-                if ((obj == null) && method.getDeclaringClass() != oClass)
                     continue;
 
                 try
@@ -1177,13 +1197,16 @@ public class XmlConfiguration
         {
             AttrOrElementNode aoeNode = new AttrOrElementNode(node, "Id", "Name", "Deprecated", "Default");
             String id = aoeNode.getString("Id");
-            String name = aoeNode.getString("Name", true);
+            String name = aoeNode.getString("Name", false);
             List<Object> deprecated = aoeNode.getList("Deprecated");
             String dftValue = aoeNode.getString("Default");
 
+            if (name == null && deprecated.isEmpty())
+                throw new IllegalStateException("Invalid <Property> element");
+
             // Look for a value
             Map<String, String> properties = _configuration.getProperties();
-            String value = properties.get(name);
+            String value = name == null ? null : properties.get(name);
 
             // Look for a deprecated name value
             String alternate = null;
@@ -1191,13 +1214,22 @@ public class XmlConfiguration
             {
                 for (Object d : deprecated)
                 {
-                    String v = properties.get(StringUtil.valueOf(d));
+                    if (d == null)
+                        continue;
+                    String v = properties.get(d.toString());
                     if (v != null)
                     {
                         if (value == null)
-                            LOG.warn("Property '{}' is deprecated, use '{}' instead", d, name);
+                        {
+                            if (name == null)
+                                LOG.warn("Property '{}' is deprecated, no replacement available", d);
+                            else
+                                LOG.warn("Property '{}' is deprecated, use '{}' instead", d, name);
+                        }
                         else
-                            LOG.warn("Property '{}' is deprecated, value from '{}' used", d, name);
+                        {
+                            LOG.warn("Property '{}' is deprecated, value from '{}' used instead", d, name);
+                        }
                     }
                     if (alternate == null)
                         alternate = v;
@@ -1228,12 +1260,15 @@ public class XmlConfiguration
         {
             AttrOrElementNode aoeNode = new AttrOrElementNode(node, "Id", "Name", "Deprecated", "Default");
             String id = aoeNode.getString("Id");
-            String name = aoeNode.getString("Name", true);
+            String name = aoeNode.getString("Name", false);
             List<Object> deprecated = aoeNode.getList("Deprecated");
             String dftValue = aoeNode.getString("Default");
 
+            if (name == null && deprecated.isEmpty())
+                throw new IllegalStateException("Invalid <SystemProperty> element");
+
             // Look for a value
-            String value = System.getProperty(name);
+            String value = name == null ? null : System.getProperty(name);
 
             // Look for a deprecated name value
             String alternate = null;
@@ -1247,9 +1282,16 @@ public class XmlConfiguration
                     if (v != null)
                     {
                         if (value == null)
-                            LOG.warn("SystemProperty '{}' is deprecated, use '{}' instead", d, name);
+                        {
+                            if (name == null)
+                                LOG.warn("SystemProperty '{}' is deprecated, no replacement available", d);
+                            else
+                                LOG.warn("SystemProperty '{}' is deprecated, use '{}' instead", d, name);
+                        }
                         else
+                        {
                             LOG.warn("SystemProperty '{}' is deprecated, value from '{}' used", d, name);
+                        }
                     }
                     if (alternate == null)
                         alternate = v;
@@ -1281,22 +1323,30 @@ public class XmlConfiguration
         {
             AttrOrElementNode aoeNode = new AttrOrElementNode(node, "Id", "Name", "Deprecated", "Default");
             String id = aoeNode.getString("Id");
-            String name = aoeNode.getString("Name", true);
+            String name = aoeNode.getString("Name", false);
             List<Object> deprecated = aoeNode.getList("Deprecated");
             String dftValue = aoeNode.getString("Default");
 
+            if (name == null && deprecated.isEmpty())
+                throw new IllegalStateException("Invalid <Env> element");
+
             // Look for a value
-            String value = System.getenv(name);
+            String value = name == null ? null : System.getenv(name);
 
             // Look for a deprecated name value
             if (value == null && !deprecated.isEmpty())
             {
                 for (Object d : deprecated)
                 {
-                    value = System.getenv(StringUtil.valueOf(d));
+                    if (d == null)
+                        continue;
+                    value = System.getenv(d.toString());
                     if (value != null)
                     {
-                        LOG.warn("Property '{}' is deprecated, use '{}' instead", d, name);
+                        if (name == null)
+                            LOG.warn("Property '{}' is deprecated, no replacement available", d);
+                        else
+                            LOG.warn("Property '{}' is deprecated, use '{}' instead", d, name);
                         break;
                     }
                 }
@@ -1807,86 +1857,81 @@ public class XmlConfiguration
     {
         try
         {
-            AccessController.doPrivileged((PrivilegedExceptionAction<Void>)() ->
+            Properties properties = new Properties();
+            properties.putAll(System.getProperties());
+
+            // For all arguments, load properties
+            if (LOG.isDebugEnabled())
+                LOG.debug("args={}", Arrays.asList(args));
+            for (String arg : args)
             {
-                Properties properties = new Properties();
-                properties.putAll(System.getProperties());
-
-                // For all arguments, load properties
-                if (LOG.isDebugEnabled())
-                    LOG.debug("args={}", Arrays.asList(args));
-                for (String arg : args)
+                if (arg.indexOf('=') >= 0)
                 {
-                    if (arg.indexOf('=') >= 0)
+                    int i = arg.indexOf('=');
+                    properties.put(arg.substring(0, i), arg.substring(i + 1));
+                }
+                else if (arg.toLowerCase(Locale.ENGLISH).endsWith(".properties"))
+                {
+                    try (InputStream inputStream = Resource.newResource(arg).getInputStream())
                     {
-                        int i = arg.indexOf('=');
-                        properties.put(arg.substring(0, i), arg.substring(i + 1));
-                    }
-                    else if (arg.toLowerCase(Locale.ENGLISH).endsWith(".properties"))
-                    {
-                        try (InputStream inputStream = Resource.newResource(arg).getInputStream())
-                        {
-                            properties.load(inputStream);
-                        }
+                        properties.load(inputStream);
                     }
                 }
+            }
 
-                // For all arguments, parse XMLs
-                XmlConfiguration last = null;
-                List<Object> objects = new ArrayList<>(args.length);
-                for (String arg : args)
+            // For all arguments, parse XMLs
+            XmlConfiguration last = null;
+            List<Object> objects = new ArrayList<>(args.length);
+            for (String arg : args)
+            {
+                if (!arg.toLowerCase(Locale.ENGLISH).endsWith(".properties") && (arg.indexOf('=') < 0))
                 {
-                    if (!arg.toLowerCase(Locale.ENGLISH).endsWith(".properties") && (arg.indexOf('=') < 0))
+                    XmlConfiguration configuration = new XmlConfiguration(Resource.newResource(arg));
+                    if (last != null)
+                        configuration.getIdMap().putAll(last.getIdMap());
+                    if (properties.size() > 0)
                     {
-                        XmlConfiguration configuration = new XmlConfiguration(Resource.newResource(arg));
-                        if (last != null)
-                            configuration.getIdMap().putAll(last.getIdMap());
-                        if (properties.size() > 0)
-                        {
-                            Map<String, String> props = new HashMap<>();
-                            properties.entrySet().stream()
-                                .forEach(objectObjectEntry -> props.put(objectObjectEntry.getKey().toString(),
-                                                                        String.valueOf(objectObjectEntry.getValue())));
-                            configuration.getProperties().putAll(props);
-                        }
-
-                        Object obj = configuration.configure();
-                        if (obj != null && !objects.contains(obj))
-                            objects.add(obj);
-                        last = configuration;
+                        Map<String, String> props = new HashMap<>();
+                        properties.forEach((key, value) -> props.put(key.toString(),
+                            String.valueOf(value)));
+                        configuration.getProperties().putAll(props);
                     }
+
+                    Object obj = configuration.configure();
+                    if (obj != null && !objects.contains(obj))
+                        objects.add(obj);
+                    last = configuration;
                 }
+            }
 
-                if (LOG.isDebugEnabled())
-                    LOG.debug("objects={}", objects);
+            if (LOG.isDebugEnabled())
+                LOG.debug("objects={}", objects);
 
-                // For all objects created by XmlConfigurations, start them if they are lifecycles.
-                List<LifeCycle> started = new ArrayList<>(objects.size());
-                for (Object obj : objects)
+            // For all objects created by XmlConfigurations, start them if they are lifecycles.
+            List<LifeCycle> started = new ArrayList<>(objects.size());
+            for (Object obj : objects)
+            {
+                if (obj instanceof LifeCycle)
                 {
-                    if (obj instanceof LifeCycle)
+                    LifeCycle lc = (LifeCycle)obj;
+                    if (!lc.isRunning())
                     {
-                        LifeCycle lc = (LifeCycle)obj;
-                        if (!lc.isRunning())
+                        lc.start();
+                        if (lc.isStarted())
+                            started.add(lc);
+                        else
                         {
-                            lc.start();
-                            if (lc.isStarted())
-                                started.add(lc);
-                            else
+                            // Failed to start a component, so stop all started components
+                            Collections.reverse(started);
+                            for (LifeCycle slc : started)
                             {
-                                // Failed to start a component, so stop all started components
-                                Collections.reverse(started);
-                                for (LifeCycle slc : started)
-                                {
-                                    slc.stop();
-                                }
-                                break;
+                                slc.stop();
                             }
+                            break;
                         }
                     }
                 }
-                return null;
-            });
+            }
         }
         catch (Error | Exception e)
         {
@@ -1895,7 +1940,7 @@ public class XmlConfiguration
         }
     }
 
-    private static class ConfigurationParser extends XmlParser implements AutoCloseable
+    private static class ConfigurationParser extends XmlParser implements Closeable
     {
         private final Pool<ConfigurationParser>.Entry _entry;
 
@@ -1904,33 +1949,49 @@ public class XmlConfiguration
             _entry = entry;
 
             Class<?> klass = XmlConfiguration.class;
+
             URL config60 = klass.getResource("configure_6_0.dtd");
             URL config76 = klass.getResource("configure_7_6.dtd");
             URL config90 = klass.getResource("configure_9_0.dtd");
             URL config93 = klass.getResource("configure_9_3.dtd");
             URL config100 = klass.getResource("configure_10_0.dtd");
 
-            redirectEntity("configure.dtd", config93);
-            redirectEntity("configure_1_0.dtd", config60);
-            redirectEntity("configure_1_1.dtd", config60);
-            redirectEntity("configure_1_2.dtd", config60);
-            redirectEntity("configure_1_3.dtd", config60);
-            redirectEntity("configure_6_0.dtd", config60);
-            redirectEntity("configure_7_6.dtd", config76);
-            redirectEntity("configure_9_0.dtd", config90);
-            redirectEntity("configure_9_3.dtd", config93);
-            redirectEntity("configure_10_0.dtd", config100);
+            Map<String, URL> dtdRefMap = new HashMap<>();
+            dtdRefMap.put("configure.dtd", config93);
+            dtdRefMap.put("configure_1_0.dtd", config60);
+            dtdRefMap.put("configure_1_1.dtd", config60);
+            dtdRefMap.put("configure_1_2.dtd", config60);
+            dtdRefMap.put("configure_1_3.dtd", config60);
+            dtdRefMap.put("configure_6_0.dtd", config60);
+            dtdRefMap.put("configure_7_6.dtd", config76);
+            dtdRefMap.put("configure_9_0.dtd", config90);
+            dtdRefMap.put("configure_9_3.dtd", config93);
+            dtdRefMap.put("configure_10_0.dtd", config100);
 
-            redirectEntity("http://jetty.mortbay.org/configure.dtd", config93);
-            redirectEntity("http://jetty.mortbay.org/configure_9_3.dtd", config93);
-            redirectEntity("http://jetty.eclipse.org/configure.dtd", config93);
-            redirectEntity("https://jetty.eclipse.org/configure.dtd", config93);
-            redirectEntity("http://www.eclipse.org/jetty/configure.dtd", config93);
-            redirectEntity("https://www.eclipse.org/jetty/configure.dtd", config93);
-            redirectEntity("http://www.eclipse.org/jetty/configure_9_3.dtd", config93);
-            redirectEntity("https://www.eclipse.org/jetty/configure_9_3.dtd", config93);
-            redirectEntity("https://www.eclipse.org/jetty/configure_10_0.dtd", config100);
+            dtdRefMap.forEach(this::redirectEntity);
 
+            // Register all variations of DOCTYPE entity references for Configure
+            List<String> schemes = List.of("http", "https");
+            List<String> contexts = List.of(
+                "jetty.mortbay.org",
+                "jetty.eclipse.org",
+                "www.eclipse.org/jetty",
+                "eclipse.org/jetty",
+                "www.eclipse.dev/jetty",
+                "eclipse.dev/jetty",
+                "jetty.org");
+
+            for (String scheme : schemes)
+            {
+                for (String context : contexts)
+                {
+                    dtdRefMap.forEach((dtdName, dtdUrl) ->
+                    {
+                        String refUrl = String.format("%s://%s/%s", scheme, context, dtdName);
+                        redirectEntity(refUrl, dtdUrl);
+                    });
+                }
+            }
             redirectEntity("-//Mort Bay Consulting//DTD Configure//EN", config100);
             redirectEntity("-//Jetty//Configure//EN", config100);
         }

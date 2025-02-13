@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -76,7 +76,7 @@ public class JettyJasperInitializer extends JasperInitializer
     public TldScanner newTldScanner(ServletContext context, boolean namespaceAware, boolean validate, boolean blockExternal)
     {
         String tmp = context.getInitParameter("org.eclipse.jetty.jsp.precompiled");
-        if (tmp != null && !tmp.equals("") && Boolean.valueOf(tmp))
+        if (tmp != null && !tmp.isEmpty() && Boolean.valueOf(tmp))
         {
             if (LOG.isDebugEnabled())
                 LOG.debug("Jsp precompilation detected");

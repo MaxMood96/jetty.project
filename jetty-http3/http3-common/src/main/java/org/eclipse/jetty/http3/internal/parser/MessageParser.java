@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -19,9 +19,11 @@ import java.util.function.BooleanSupplier;
 import java.util.function.UnaryOperator;
 
 import org.eclipse.jetty.http3.frames.FrameType;
+import org.eclipse.jetty.http3.internal.Grease;
 import org.eclipse.jetty.http3.internal.HTTP3ErrorCode;
 import org.eclipse.jetty.http3.qpack.QpackDecoder;
 import org.eclipse.jetty.util.BufferUtil;
+import org.eclipse.jetty.util.NanoTime;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -42,12 +44,15 @@ public class MessageParser
     private final BooleanSupplier isLast;
     private BodyParser unknownBodyParser;
     private State state = State.HEADER;
-    protected boolean dataMode;
+    private boolean dataMode;
+    private long beginNanoTime;
+    private boolean beginNanoTimeStored;
 
     public MessageParser(ParserListener listener, QpackDecoder decoder, long streamId, BooleanSupplier isLast)
     {
         this.listener = listener;
         this.decoder = decoder;
+        decoder.setBeginNanoTimeSupplier(this::getBeginNanoTime);
         this.streamId = streamId;
         this.isLast = isLast;
     }
@@ -65,11 +70,31 @@ public class MessageParser
     {
         headerParser.reset();
         state = State.HEADER;
+        beginNanoTimeStored = false;
+    }
+
+    private void storeBeginNanoTime()
+    {
+        if (!beginNanoTimeStored)
+        {
+            beginNanoTime = NanoTime.now();
+            beginNanoTimeStored = true;
+        }
+    }
+
+    private long getBeginNanoTime()
+    {
+        return beginNanoTime;
     }
 
     public ParserListener getListener()
     {
         return listener;
+    }
+
+    public boolean isDataMode()
+    {
+        return dataMode;
     }
 
     public void setDataMode(boolean enable)
@@ -95,12 +120,13 @@ public class MessageParser
                 {
                     case HEADER:
                     {
+                        storeBeginNanoTime();
                         if (headerParser.parse(buffer))
                         {
                             state = State.BODY;
                             // If we are in data mode, but we did not parse a DATA frame, bail out.
                             if (dataMode && headerParser.getFrameType() != FrameType.DATA.type())
-                                return Result.MODE_SWITCH;
+                                return Result.SWITCH_MODE;
                             break;
                         }
                         return Result.NO_FRAME;
@@ -123,8 +149,9 @@ public class MessageParser
                                 return Result.NO_FRAME;
                             }
 
+                            // SPEC: grease and unknown frame types are ignored.
                             if (LOG.isDebugEnabled())
-                                LOG.debug("ignoring unknown frame type {}", Long.toHexString(frameType));
+                                LOG.debug("ignoring {} frame type {}", Grease.isGreaseValue(frameType) ? "grease" : "unknown", Long.toHexString(frameType));
 
                             BodyParser.Result result = unknownBodyParser.parse(buffer);
                             if (result == BodyParser.Result.NO_FRAME)
@@ -143,18 +170,32 @@ public class MessageParser
                                 if (LOG.isDebugEnabled())
                                     LOG.debug("parsed {} empty frame body from {}", FrameType.from(frameType), BufferUtil.toDetailString(buffer));
                                 reset();
+                                return Result.FRAME;
                             }
                             else
                             {
                                 BodyParser.Result result = bodyParser.parse(buffer);
+                                if (LOG.isDebugEnabled())
+                                    LOG.debug("parsed {} {} body from {}", result, FrameType.from(frameType), BufferUtil.toDetailString(buffer));
+
+                                // Not enough bytes, there is no frame.
                                 if (result == BodyParser.Result.NO_FRAME)
                                     return Result.NO_FRAME;
-                                if (LOG.isDebugEnabled())
-                                    LOG.debug("parsed {} frame body from {}", FrameType.from(frameType), BufferUtil.toDetailString(buffer));
+
+                                // Do not reset() if it is a fragment frame.
+                                if (result == BodyParser.Result.FRAGMENT_FRAME)
+                                    return Result.FRAME;
+
+                                reset();
+
+                                if (result == BodyParser.Result.BLOCKED_FRAME)
+                                    return Result.BLOCKED_FRAME;
+
                                 if (result == BodyParser.Result.WHOLE_FRAME)
-                                    reset();
+                                    return Result.FRAME;
+
+                                throw new IllegalStateException();
                             }
-                            return Result.FRAME;
                         }
                     }
                     default:
@@ -180,7 +221,23 @@ public class MessageParser
 
     public enum Result
     {
-        NO_FRAME, FRAME, MODE_SWITCH
+        /**
+         * Indicates that no frame was parsed, either for lack of bytes, or because or errors.
+         */
+        NO_FRAME,
+        /**
+         * Indicates that a frame was parsed.
+         */
+        FRAME,
+        /**
+         * Indicates that a frame was parsed but its notification was deferred.
+         * This is the case of HEADERS frames that are waiting to be unblocked.
+         */
+        BLOCKED_FRAME,
+        /**
+         * Indicates that a DATA frame was expected, but a HEADERS was found instead.
+         */
+        SWITCH_MODE
     }
 
     private enum State

@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -33,7 +33,7 @@ public class quiche_h
 {
     // This interface is a translation of the quiche.h header of a specific version.
     // It needs to be reviewed each time the native lib version changes.
-    private static final String EXPECTED_QUICHE_VERSION = "0.12.0";
+    private static final String EXPECTED_QUICHE_VERSION = "0.22.0";
 
     public static final byte C_FALSE = 0;
     public static final byte C_TRUE = 1;
@@ -50,6 +50,12 @@ public class quiche_h
         "quiche_config_set_cc_algorithm",
         "(Ljdk/incubator/foreign/MemoryAddress;I)V",
         FunctionDescriptor.ofVoid(C_POINTER, C_INT)
+    );
+
+    private static final MethodHandle quiche_config_load_verify_locations_from_file$MH = downcallHandle(
+        "quiche_config_load_verify_locations_from_file",
+        "(Ljdk/incubator/foreign/MemoryAddress;Ljdk/incubator/foreign/MemoryAddress;)I",
+        FunctionDescriptor.of(C_INT, C_POINTER, C_POINTER)
     );
 
     private static final MethodHandle quiche_config_load_cert_chain_from_pem_file$MH = downcallHandle(
@@ -142,6 +148,24 @@ public class quiche_h
         FunctionDescriptor.ofVoid(C_POINTER, C_CHAR)
     );
 
+    private static final MethodHandle quiche_config_set_max_connection_window$MH = downcallHandle(
+        "quiche_config_set_max_connection_window",
+        "(Ljdk/incubator/foreign/MemoryAddress;J)V",
+        FunctionDescriptor.ofVoid(C_POINTER, C_LONG)
+    );
+
+    private static final MethodHandle quiche_config_set_max_stream_window$MH = downcallHandle(
+        "quiche_config_set_max_stream_window",
+        "(Ljdk/incubator/foreign/MemoryAddress;J)V",
+        FunctionDescriptor.ofVoid(C_POINTER, C_LONG)
+    );
+
+    private static final MethodHandle quiche_config_set_active_connection_id_limit$MH = downcallHandle(
+        "quiche_config_set_active_connection_id_limit",
+        "(Ljdk/incubator/foreign/MemoryAddress;J)V",
+        FunctionDescriptor.ofVoid(C_POINTER, C_LONG)
+    );
+
     private static final MethodHandle quiche_config_free$MH = downcallHandle(
         "quiche_config_free",
         "(Ljdk/incubator/foreign/MemoryAddress;)V",
@@ -150,8 +174,8 @@ public class quiche_h
 
     private static final MethodHandle quiche_connect$MH = downcallHandle(
         "quiche_connect",
-        "(Ljdk/incubator/foreign/MemoryAddress;Ljdk/incubator/foreign/MemoryAddress;JLjdk/incubator/foreign/MemoryAddress;JLjdk/incubator/foreign/MemoryAddress;)Ljdk/incubator/foreign/MemoryAddress;",
-        FunctionDescriptor.of(C_POINTER, C_POINTER, C_POINTER, C_LONG, C_POINTER, C_LONG, C_POINTER)
+        "(Ljdk/incubator/foreign/MemoryAddress;Ljdk/incubator/foreign/MemoryAddress;JLjdk/incubator/foreign/MemoryAddress;JLjdk/incubator/foreign/MemoryAddress;JLjdk/incubator/foreign/MemoryAddress;)Ljdk/incubator/foreign/MemoryAddress;",
+        FunctionDescriptor.of(C_POINTER, C_POINTER, C_POINTER, C_LONG, C_POINTER, C_LONG, C_POINTER, C_LONG, C_POINTER)
     );
 
     private static final MethodHandle quiche_conn_send$MH = downcallHandle(
@@ -174,8 +198,8 @@ public class quiche_h
 
     private static final MethodHandle quiche_accept$MH = downcallHandle(
         "quiche_accept",
-        "(Ljdk/incubator/foreign/MemoryAddress;JLjdk/incubator/foreign/MemoryAddress;JLjdk/incubator/foreign/MemoryAddress;JLjdk/incubator/foreign/MemoryAddress;)Ljdk/incubator/foreign/MemoryAddress;",
-        FunctionDescriptor.of(C_POINTER, C_POINTER, C_LONG, C_POINTER, C_LONG, C_POINTER, C_LONG, C_POINTER)
+        "(Ljdk/incubator/foreign/MemoryAddress;JLjdk/incubator/foreign/MemoryAddress;JLjdk/incubator/foreign/MemoryAddress;JLjdk/incubator/foreign/MemoryAddress;JLjdk/incubator/foreign/MemoryAddress;)Ljdk/incubator/foreign/MemoryAddress;",
+        FunctionDescriptor.of(C_POINTER, C_POINTER, C_LONG, C_POINTER, C_LONG, C_POINTER, C_LONG, C_POINTER, C_LONG, C_POINTER)
     );
 
     private static final MethodHandle quiche_negotiate_version$MH = downcallHandle(
@@ -232,8 +256,20 @@ public class quiche_h
         FunctionDescriptor.of(C_CHAR, C_POINTER)
     );
 
+    private static final MethodHandle quiche_conn_peer_cert$MH = downcallHandle(
+        "quiche_conn_peer_cert",
+        "(Ljdk/incubator/foreign/MemoryAddress;Ljdk/incubator/foreign/MemoryAddress;Ljdk/incubator/foreign/MemoryAddress;)V",
+        FunctionDescriptor.ofVoid(C_POINTER, C_POINTER, C_POINTER)
+    );
+
     private static final MethodHandle quiche_conn_peer_error$MH = downcallHandle(
         "quiche_conn_peer_error",
+        "(Ljdk/incubator/foreign/MemoryAddress;Ljdk/incubator/foreign/MemoryAddress;Ljdk/incubator/foreign/MemoryAddress;Ljdk/incubator/foreign/MemoryAddress;Ljdk/incubator/foreign/MemoryAddress;)B",
+        FunctionDescriptor.of(C_CHAR, C_POINTER, C_POINTER, C_POINTER, C_POINTER, C_POINTER)
+    );
+
+    private static final MethodHandle quiche_conn_local_error$MH = downcallHandle(
+        "quiche_conn_local_error",
         "(Ljdk/incubator/foreign/MemoryAddress;Ljdk/incubator/foreign/MemoryAddress;Ljdk/incubator/foreign/MemoryAddress;Ljdk/incubator/foreign/MemoryAddress;Ljdk/incubator/foreign/MemoryAddress;)B",
         FunctionDescriptor.of(C_CHAR, C_POINTER, C_POINTER, C_POINTER, C_POINTER, C_POINTER)
     );
@@ -242,6 +278,18 @@ public class quiche_h
         "quiche_conn_stats",
         "(Ljdk/incubator/foreign/MemoryAddress;Ljdk/incubator/foreign/MemoryAddress;)V",
         FunctionDescriptor.ofVoid(C_POINTER, C_POINTER)
+    );
+
+    private static final MethodHandle quiche_conn_peer_transport_params$MH = downcallHandle(
+        "quiche_conn_peer_transport_params",
+        "(Ljdk/incubator/foreign/MemoryAddress;Ljdk/incubator/foreign/MemoryAddress;)B",
+        FunctionDescriptor.of(C_CHAR, C_POINTER, C_POINTER)
+    );
+
+    private static final MethodHandle quiche_conn_path_stats$MH = downcallHandle(
+        "quiche_conn_path_stats",
+        "(Ljdk/incubator/foreign/MemoryAddress;JLjdk/incubator/foreign/MemoryAddress;)I",
+        FunctionDescriptor.of(C_INT, C_POINTER, C_LONG, C_POINTER)
     );
 
     private static final MethodHandle quiche_conn_stream_finished$MH = downcallHandle(
@@ -264,14 +312,20 @@ public class quiche_h
 
     private static final MethodHandle quiche_conn_stream_send$MH = downcallHandle(
         "quiche_conn_stream_send",
-        "(Ljdk/incubator/foreign/MemoryAddress;JLjdk/incubator/foreign/MemoryAddress;JB)J",
-        FunctionDescriptor.of(C_LONG, C_POINTER, C_LONG, C_POINTER, C_LONG, C_CHAR)
+        "(Ljdk/incubator/foreign/MemoryAddress;JLjdk/incubator/foreign/MemoryAddress;JBLjdk/incubator/foreign/MemoryAddress;)J",
+        FunctionDescriptor.of(C_LONG, C_POINTER, C_LONG, C_POINTER, C_LONG, C_CHAR, C_POINTER)
+    );
+
+    private static final MethodHandle quiche_conn_stream_writable$MH = downcallHandle(
+        "quiche_conn_stream_writable",
+        "(Ljdk/incubator/foreign/MemoryAddress;JJ)I",
+        FunctionDescriptor.of(C_INT, C_POINTER, C_LONG, C_LONG)
     );
 
     private static final MethodHandle quiche_conn_stream_recv$MH = downcallHandle(
         "quiche_conn_stream_recv",
-        "(Ljdk/incubator/foreign/MemoryAddress;JLjdk/incubator/foreign/MemoryAddress;JLjdk/incubator/foreign/MemoryAddress;)J",
-        FunctionDescriptor.of(C_LONG, C_POINTER, C_LONG, C_POINTER, C_LONG, C_POINTER)
+        "(Ljdk/incubator/foreign/MemoryAddress;JLjdk/incubator/foreign/MemoryAddress;JLjdk/incubator/foreign/MemoryAddress;Ljdk/incubator/foreign/MemoryAddress;)J",
+        FunctionDescriptor.of(C_LONG, C_POINTER, C_LONG, C_POINTER, C_LONG, C_POINTER, C_POINTER)
     );
 
     private static final MethodHandle quiche_stream_iter_next$MH = downcallHandle(
@@ -333,6 +387,18 @@ public class quiche_h
         try
         {
             return (MemoryAddress) quiche_config_new$MH.invokeExact(version);
+        }
+        catch (Throwable ex)
+        {
+            throw new AssertionError("should not reach here", ex);
+        }
+    }
+
+    public static int quiche_config_load_verify_locations_from_file(MemoryAddress config, MemoryAddress path)
+    {
+        try
+        {
+            return (int) quiche_config_load_verify_locations_from_file$MH.invokeExact(config, path);
         }
         catch (Throwable ex)
         {
@@ -405,6 +471,42 @@ public class quiche_h
         try
         {
             quiche_config_set_disable_active_migration$MH.invokeExact(config, v);
+        }
+        catch (Throwable ex)
+        {
+            throw new AssertionError("should not reach here", ex);
+        }
+    }
+
+    public static void quiche_config_set_max_connection_window(MemoryAddress config, long v)
+    {
+        try
+        {
+            quiche_config_set_max_connection_window$MH.invokeExact(config, v);
+        }
+        catch (Throwable ex)
+        {
+            throw new AssertionError("should not reach here", ex);
+        }
+    }
+
+    public static void quiche_config_set_max_stream_window(MemoryAddress config, long v)
+    {
+        try
+        {
+            quiche_config_set_max_stream_window$MH.invokeExact(config, v);
+        }
+        catch (Throwable ex)
+        {
+            throw new AssertionError("should not reach here", ex);
+        }
+    }
+
+    public static void quiche_config_set_active_connection_id_limit(MemoryAddress config, long v)
+    {
+        try
+        {
+            quiche_config_set_active_connection_id_limit$MH.invokeExact(config, v);
         }
         catch (Throwable ex)
         {
@@ -544,11 +646,11 @@ public class quiche_h
         }
     }
 
-    public static MemoryAddress quiche_connect(Addressable server_name, Addressable scid, long scid_len, Addressable to, long to_len, Addressable config)
+    public static MemoryAddress quiche_connect(Addressable server_name, Addressable scid, long scid_len, Addressable local, long local_len, Addressable peer, long peer_len, Addressable config)
     {
         try
         {
-            return (MemoryAddress) quiche_connect$MH.invokeExact(server_name.address(), scid.address(), scid_len, to.address(), to_len, config.address());
+            return (MemoryAddress) quiche_connect$MH.invokeExact(server_name.address(), scid.address(), scid_len, local.address(), local_len, peer.address(), peer_len, config.address());
         }
         catch (Throwable ex)
         {
@@ -556,11 +658,11 @@ public class quiche_h
         }
     }
 
-    public static long quiche_conn_stream_recv(MemoryAddress conn, long stream_id, MemoryAddress buf, long buf_len, MemoryAddress fin)
+    public static long quiche_conn_stream_recv(MemoryAddress conn, long stream_id, MemoryAddress buf, long buf_len, MemoryAddress fin, MemoryAddress outErrorCode)
     {
         try
         {
-            return (long) quiche_conn_stream_recv$MH.invokeExact(conn, stream_id, buf, buf_len, fin);
+            return (long) quiche_conn_stream_recv$MH.invokeExact(conn, stream_id, buf, buf_len, fin, outErrorCode);
         }
         catch (Throwable ex)
         {
@@ -568,11 +670,23 @@ public class quiche_h
         }
     }
 
-    public static long quiche_conn_stream_send(MemoryAddress conn, long stream_id, MemoryAddress buf, long buf_len, byte fin)
+    public static long quiche_conn_stream_send(MemoryAddress conn, long stream_id, MemoryAddress buf, long buf_len, byte fin, MemoryAddress outErrorCode)
     {
         try
         {
-            return (long) quiche_conn_stream_send$MH.invokeExact(conn, stream_id, buf, buf_len, fin);
+            return (long) quiche_conn_stream_send$MH.invokeExact(conn, stream_id, buf, buf_len, fin, outErrorCode);
+        }
+        catch (Throwable ex)
+        {
+            throw new AssertionError("should not reach here", ex);
+        }
+    }
+
+    public static int quiche_conn_stream_writable(MemoryAddress conn, long stream_id, long buf_len)
+    {
+        try
+        {
+            return (int) quiche_conn_stream_writable$MH.invokeExact(conn, stream_id, buf_len);
         }
         catch (Throwable ex)
         {
@@ -628,11 +742,35 @@ public class quiche_h
         }
     }
 
+    public static void quiche_conn_peer_cert(MemoryAddress conn, MemoryAddress out, MemoryAddress out_len)
+    {
+        try
+        {
+            quiche_conn_peer_cert$MH.invokeExact(conn, out, out_len);
+        }
+        catch (Throwable ex)
+        {
+            throw new AssertionError("should not reach here", ex);
+        }
+    }
+
     public static byte quiche_conn_peer_error(MemoryAddress conn, MemoryAddress is_app, MemoryAddress error_code, MemoryAddress reason, MemoryAddress reason_len)
     {
         try
         {
             return (byte) quiche_conn_peer_error$MH.invokeExact(conn, is_app, error_code, reason, reason_len);
+        }
+        catch (Throwable ex)
+        {
+            throw new AssertionError("should not reach here", ex);
+        }
+    }
+
+    public static byte quiche_conn_local_error(MemoryAddress conn, MemoryAddress is_app, MemoryAddress error_code, MemoryAddress reason, MemoryAddress reason_len)
+    {
+        try
+        {
+            return (byte) quiche_conn_local_error$MH.invokeExact(conn, is_app, error_code, reason, reason_len);
         }
         catch (Throwable ex)
         {
@@ -693,6 +831,30 @@ public class quiche_h
         try
         {
             quiche_conn_stats$MH.invokeExact(conn, stats);
+        }
+        catch (Throwable ex)
+        {
+            throw new AssertionError("should not reach here", ex);
+        }
+    }
+
+    public static byte quiche_conn_peer_transport_params(MemoryAddress conn, MemoryAddress transportParams)
+    {
+        try
+        {
+            return (byte)quiche_conn_peer_transport_params$MH.invokeExact(conn, transportParams);
+        }
+        catch (Throwable ex)
+        {
+            throw new AssertionError("should not reach here", ex);
+        }
+    }
+
+    public static int quiche_conn_path_stats(MemoryAddress conn, long idx, MemoryAddress stats)
+    {
+        try
+        {
+            return (int)quiche_conn_path_stats$MH.invokeExact(conn, idx, stats);
         }
         catch (Throwable ex)
         {
@@ -822,12 +984,13 @@ public class quiche_h
 
     public static MemoryAddress quiche_accept(MemoryAddress scid, long scid_len,
                                               MemoryAddress odcid, long odcid_len,
-                                              MemoryAddress from, long from_len,
+                                              MemoryAddress local, long local_len,
+                                              MemoryAddress peer, long peer_len,
                                               MemoryAddress config)
     {
         try
         {
-            return (MemoryAddress)quiche_accept$MH.invokeExact(scid, scid_len, odcid, odcid_len, from, from_len, config);
+            return (MemoryAddress)quiche_accept$MH.invokeExact(scid, scid_len, odcid, odcid_len, local, local_len, peer, peer_len, config);
         }
         catch (Throwable ex)
         {

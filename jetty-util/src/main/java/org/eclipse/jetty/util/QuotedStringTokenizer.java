@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -231,19 +231,6 @@ public class QuotedStringTokenizer
         _i = _lastStart;
         _token.setLength(0);
         _hasToken = false;
-        return nextToken();
-    }
-
-    @Override
-    public boolean hasMoreElements()
-    {
-        return hasMoreTokens();
-    }
-
-    @Override
-    public Object nextElement()
-        throws NoSuchElementException
-    {
         return nextToken();
     }
 

@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -16,6 +16,7 @@ package org.eclipse.jetty.http.client;
 import java.io.IOException;
 import java.io.InterruptedIOException;
 import java.nio.ByteBuffer;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -51,11 +52,11 @@ import org.eclipse.jetty.server.handler.AbstractHandler;
 import org.eclipse.jetty.unixdomain.server.UnixDomainServerConnector;
 import org.eclipse.jetty.util.IO;
 import org.eclipse.jetty.util.LeakDetector;
+import org.eclipse.jetty.util.NanoTime;
 import org.eclipse.jetty.util.ProcessorUtils;
 import org.eclipse.jetty.util.ssl.SslContextFactory;
 import org.eclipse.jetty.util.thread.Scheduler;
 import org.hamcrest.Matchers;
-import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ArgumentsSource;
 import org.slf4j.Logger;
@@ -80,10 +81,6 @@ public class HttpClientLoadTest extends AbstractTest<HttpClientLoadTest.LoadTran
     @ArgumentsSource(TransportProvider.class)
     public void testIterative(Transport transport) throws Exception
     {
-        // TODO: cannot run HTTP/3 (or UDP) in Jenkins.
-        if ("ci".equals(System.getProperty("env")))
-            Assumptions.assumeTrue(transport != Transport.H3);
-
         init(transport);
         scenario.start(new LoadHandler(), client ->
         {
@@ -117,9 +114,6 @@ public class HttpClientLoadTest extends AbstractTest<HttpClientLoadTest.LoadTran
     @ArgumentsSource(TransportProvider.class)
     public void testConcurrent(Transport transport) throws Exception
     {
-        // TODO: cannot run HTTP/3 (or UDP) in Jenkins.
-        Assumptions.assumeTrue(transport != Transport.H3);
-
         init(transport);
         scenario.start(new LoadHandler(), client ->
         {
@@ -182,15 +176,15 @@ public class HttpClientLoadTest extends AbstractTest<HttpClientLoadTest.LoadTran
             testThread.interrupt();
         }, maxTime, TimeUnit.MILLISECONDS);
 
-        long begin = System.nanoTime();
+        long begin = NanoTime.now();
         for (int i = 0; i < iterations; ++i)
         {
             test(latch, failures);
 //            test("http", "localhost", "GET", false, false, 64 * 1024, false, latch, failures);
         }
-        long end = System.nanoTime();
+        long end = NanoTime.now();
         task.cancel();
-        long elapsed = TimeUnit.NANOSECONDS.toMillis(end - begin);
+        long elapsed = NanoTime.millisElapsed(begin, end);
         logger.info("{} {} requests in {} ms, {} req/s", iterations, transport, elapsed, elapsed > 0 ? iterations * 1000L / elapsed : -1);
 
         for (String failure : failures)
@@ -395,7 +389,9 @@ public class HttpClientLoadTest extends AbstractTest<HttpClientLoadTest.LoadTran
                 case FCGI:
                     return new ServerConnector(server, null, null, byteBufferPool, 1, selectors, provideServerConnectionFactory(transport));
                 case H3:
-                    return new HTTP3ServerConnector(server, null, null, byteBufferPool, sslContextFactory, provideServerConnectionFactory(transport));
+                    HTTP3ServerConnector http3ServerConnector = new HTTP3ServerConnector(server, null, null, byteBufferPool, sslContextFactory, provideServerConnectionFactory(transport));
+                    http3ServerConnector.getQuicConfiguration().setPemWorkDirectory(Path.of(System.getProperty("java.io.tmpdir")));
+                    return http3ServerConnector;
                 case UNIX_DOMAIN:
                     UnixDomainServerConnector unixSocketConnector = new UnixDomainServerConnector(server, null, null, byteBufferPool, 1, selectors, provideServerConnectionFactory(transport));
                     unixSocketConnector.setUnixDomainPath(unixDomainPath);

@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -49,7 +49,7 @@ public class ResourcesAnnotationHandler extends AbstractIntrospectableAnnotation
                 String name = resArray[j].name();
                 String mappedName = resArray[j].mappedName();
 
-                if (name == null || name.trim().equals(""))
+                if (name == null || name.trim().isEmpty())
                     throw new IllegalStateException("Class level Resource annotations must contain a name (Common Annotations Spec Section 2.3)");
 
                 try

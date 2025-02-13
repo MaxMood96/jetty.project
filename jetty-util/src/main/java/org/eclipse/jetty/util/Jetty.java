@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -67,7 +67,7 @@ public class Jetty
         else
             VERSION = System.getProperty("jetty.version", __buildProperties.getProperty("version", "10.0.z-SNAPSHOT"));
 
-        POWERED_BY = "<a href=\"https://eclipse.org/jetty\">Powered by Jetty:// " + VERSION + "</a>";
+        POWERED_BY = "<a href=\"https://jetty.org\">Powered by Jetty:// " + VERSION + "</a>";
 
         // Show warning when RC# or M# is in version string
         STABLE = !VERSION.matches("^.*\\.(RC|M)[0-9]+$");

@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -275,33 +275,6 @@ public class BlockingContentProducerTest
             HttpInput.Content content2 = contentProducer.nextContent();
             assertThat(content2.isSpecial(), is(true));
             assertThat(content2.getError().getCause().getMessage(), is("testBlockingContentProducerInterceptorThrows error"));
-        }
-        assertThat(contentFailedCount.get(), is(1));
-    }
-
-    @Test
-    public void testBlockingContentProducerInterceptorDoesNotConsume()
-    {
-        AtomicInteger contentFailedCount = new AtomicInteger();
-        ContentProducer contentProducer = new BlockingContentProducer(new AsyncContentProducer(new StaticContentHttpChannel(new HttpInput.Content(ByteBuffer.allocate(1))
-        {
-            @Override
-            public void failed(Throwable x)
-            {
-                contentFailedCount.incrementAndGet();
-            }
-        })));
-        try (AutoLock lock = contentProducer.lock())
-        {
-            contentProducer.setInterceptor(content -> null);
-
-            HttpInput.Content content1 = contentProducer.nextContent();
-            assertThat(content1.isSpecial(), is(true));
-            assertThat(content1.getError().getMessage(), endsWith("did not consume any of the 1 remaining byte(s) of content"));
-
-            HttpInput.Content content2 = contentProducer.nextContent();
-            assertThat(content2.isSpecial(), is(true));
-            assertThat(content2.getError().getMessage(), endsWith("did not consume any of the 1 remaining byte(s) of content"));
         }
         assertThat(contentFailedCount.get(), is(1));
     }

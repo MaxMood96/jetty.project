@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -14,7 +14,6 @@
 package org.eclipse.jetty.http2.hpack;
 
 import java.nio.ByteBuffer;
-import java.util.concurrent.TimeUnit;
 
 import org.eclipse.jetty.http.DateGenerator;
 import org.eclipse.jetty.http.HttpField;
@@ -25,6 +24,7 @@ import org.eclipse.jetty.http.MetaData;
 import org.eclipse.jetty.http.MetaData.Response;
 import org.eclipse.jetty.http.PreEncodedHttpField;
 import org.eclipse.jetty.util.BufferUtil;
+import org.eclipse.jetty.util.NanoTime;
 import org.junit.jupiter.api.Test;
 
 import static org.hamcrest.MatcherAssert.assertThat;
@@ -38,13 +38,13 @@ public class HpackTest
 {
     static final HttpField ServerJetty = new PreEncodedHttpField(HttpHeader.SERVER, "jetty");
     static final HttpField XPowerJetty = new PreEncodedHttpField(HttpHeader.X_POWERED_BY, "jetty");
-    static final HttpField Date = new PreEncodedHttpField(HttpHeader.DATE, DateGenerator.formatDate(TimeUnit.NANOSECONDS.toMillis(System.nanoTime())));
+    static final HttpField Date = new PreEncodedHttpField(HttpHeader.DATE, DateGenerator.formatDate(System.currentTimeMillis()));
 
     @Test
     public void encodeDecodeResponseTest() throws Exception
     {
         HpackEncoder encoder = new HpackEncoder();
-        HpackDecoder decoder = new HpackDecoder(4096, 8192);
+        HpackDecoder decoder = new HpackDecoder(8192, NanoTime::now);
         ByteBuffer buffer = BufferUtil.allocateDirect(16 * 1024);
 
         HttpFields.Mutable fields0 = HttpFields.build()
@@ -99,7 +99,7 @@ public class HpackTest
     public void encodeDecodeTooLargeTest() throws Exception
     {
         HpackEncoder encoder = new HpackEncoder();
-        HpackDecoder decoder = new HpackDecoder(4096, 164);
+        HpackDecoder decoder = new HpackDecoder(164, NanoTime::now);
         ByteBuffer buffer = BufferUtil.allocateDirect(16 * 1024);
 
         HttpFields fields0 = HttpFields.build()
@@ -130,36 +130,40 @@ public class HpackTest
         }
         catch (HpackException.SessionException e)
         {
-            assertThat(e.getMessage(), containsString("Header too large"));
+            assertThat(e.getMessage(), containsString("Header size 198 > 164"));
         }
     }
 
     @Test
-    public void encodeDecodeNonAscii() throws Exception
+    public void encodeNonAscii() throws Exception
     {
         HpackEncoder encoder = new HpackEncoder();
-        HpackDecoder decoder = new HpackDecoder(4096, 8192);
         ByteBuffer buffer = BufferUtil.allocate(16 * 1024);
 
         HttpFields fields0 = HttpFields.build()
-        // @checkstyle-disable-check : AvoidEscapedUnicodeCharactersCheck
+            // @checkstyle-disable-check : AvoidEscapedUnicodeCharactersCheck
             .add("Cookie", "[\uD842\uDF9F]")
             .add("custom-key", "[\uD842\uDF9F]");
         Response original0 = new MetaData.Response(HttpVersion.HTTP_2, 200, fields0);
 
-        BufferUtil.clearToFill(buffer);
-        encoder.encode(buffer, original0);
-        BufferUtil.flipToFlush(buffer, 0);
-        Response decoded0 = (Response)decoder.decode(buffer);
+        HpackException.SessionException throwable = assertThrows(HpackException.SessionException.class, () ->
+        {
+            BufferUtil.clearToFill(buffer);
+            encoder.encode(buffer, original0);
+            BufferUtil.flipToFlush(buffer, 0);
+        });
 
-        assertMetaDataSame(original0, decoded0);
+        assertThat(throwable.getMessage(), containsString("Could not hpack encode"));
     }
-    
+
     @Test
     public void evictReferencedFieldTest() throws Exception
     {
-        HpackEncoder encoder = new HpackEncoder(200, 200);
-        HpackDecoder decoder = new HpackDecoder(200, 1024);
+        HpackDecoder decoder = new HpackDecoder(1024, NanoTime::now);
+        decoder.setMaxTableCapacity(200);
+        HpackEncoder encoder = new HpackEncoder();
+        encoder.setMaxTableCapacity(decoder.getMaxTableCapacity());
+        encoder.setTableCapacity(decoder.getMaxTableCapacity());
         ByteBuffer buffer = BufferUtil.allocateDirect(16 * 1024);
 
         String longEnoughToBeEvicted = "012345678901234567890123456789012345678901234567890";
@@ -202,7 +206,7 @@ public class HpackTest
     public void testHopHeadersAreRemoved() throws Exception
     {
         HpackEncoder encoder = new HpackEncoder();
-        HpackDecoder decoder = new HpackDecoder(4096, 16384);
+        HpackDecoder decoder = new HpackDecoder(16384, NanoTime::now);
 
         HttpFields input = HttpFields.build()
             .add(HttpHeader.ACCEPT, "*")
@@ -229,7 +233,7 @@ public class HpackTest
     public void testTETrailers() throws Exception
     {
         HpackEncoder encoder = new HpackEncoder();
-        HpackDecoder decoder = new HpackDecoder(4096, 16384);
+        HpackDecoder decoder = new HpackDecoder(16384, NanoTime::now);
 
         String teValue = "trailers";
         String trailerValue = "Custom";
@@ -254,7 +258,7 @@ public class HpackTest
     public void testColonHeaders() throws Exception
     {
         HpackEncoder encoder = new HpackEncoder();
-        HpackDecoder decoder = new HpackDecoder(4096, 16384);
+        HpackDecoder decoder = new HpackDecoder(16384, NanoTime::now);
 
         HttpFields input = HttpFields.build()
             .add(":status", "200")

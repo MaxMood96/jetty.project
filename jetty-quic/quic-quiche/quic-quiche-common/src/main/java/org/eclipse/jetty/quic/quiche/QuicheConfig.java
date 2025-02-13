@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -18,7 +18,8 @@ public class QuicheConfig
     public enum CongestionControl
     {
         RENO(Quiche.quiche_cc_algorithm.QUICHE_CC_RENO),
-        CUBIC(Quiche.quiche_cc_algorithm.QUICHE_CC_CUBIC);
+        CUBIC(Quiche.quiche_cc_algorithm.QUICHE_CC_CUBIC),
+        BBR(Quiche.quiche_cc_algorithm.QUICHE_CC_BBR);
 
         private final int value;
         CongestionControl(int value)
@@ -34,6 +35,7 @@ public class QuicheConfig
 
     private int version = Quiche.QUICHE_PROTOCOL_VERSION;
     private Boolean verifyPeer;
+    private String trustedCertsPemPath;
     private String certChainPemPath;
     private String privKeyPemPath;
     private String[] applicationProtos;
@@ -46,6 +48,9 @@ public class QuicheConfig
     private Long initialMaxStreamsBidi;
     private Long initialMaxStreamsUni;
     private Boolean disableActiveMigration;
+    private Long maxConnectionWindow;
+    private Long maxStreamWindow;
+    private Long activeConnectionIdLimit;
 
     public QuicheConfig()
     {
@@ -59,6 +64,11 @@ public class QuicheConfig
     public Boolean getVerifyPeer()
     {
         return verifyPeer;
+    }
+
+    public String getTrustedCertsPemPath()
+    {
+        return trustedCertsPemPath;
     }
 
     public String getCertChainPemPath()
@@ -121,6 +131,21 @@ public class QuicheConfig
         return disableActiveMigration;
     }
 
+    public Long getMaxConnectionWindow()
+    {
+        return maxConnectionWindow;
+    }
+
+    public Long getMaxStreamWindow()
+    {
+        return maxStreamWindow;
+    }
+
+    public Long getActiveConnectionIdLimit()
+    {
+        return activeConnectionIdLimit;
+    }
+
     public void setVersion(int version)
     {
         this.version = version;
@@ -129,6 +154,11 @@ public class QuicheConfig
     public void setVerifyPeer(Boolean verify)
     {
         this.verifyPeer = verify;
+    }
+
+    public void setTrustedCertsPemPath(String trustedCertsPemPath)
+    {
+        this.trustedCertsPemPath = trustedCertsPemPath;
     }
 
     public void setCertChainPemPath(String path)
@@ -191,4 +221,18 @@ public class QuicheConfig
         this.disableActiveMigration = disable;
     }
 
+    public void setMaxConnectionWindow(Long sizeInBytes)
+    {
+        this.maxConnectionWindow = sizeInBytes;
+    }
+
+    public void setMaxStreamWindow(Long maxStreamWindow)
+    {
+        this.maxStreamWindow = maxStreamWindow;
+    }
+
+    public void setActiveConnectionIdLimit(Long activeConnectionIdLimit)
+    {
+        this.activeConnectionIdLimit = activeConnectionIdLimit;
+    }
 }

@@ -2,15 +2,15 @@
 
 ## Supported Versions
 
-All [stable versions](https://www.eclipse.org/jetty/download.php) of jetty are actively supported for security issues. [Deprecated versions](https://www.eclipse.org/jetty/download.php) may be supported for serious security issues or on a commercial support basis.
+All [stable versions](https://jetty.org/download.html) of jetty are actively supported for security issues. [Deprecated versions](https://jetty.org/download.html) may be supported for serious security issues or on a commercial support basis.
 
 ## Reporting a Vulnerability
 
-Do not open a public issue to report a security vulnerability.  Please send a message to security@eclipse.org and we will create a private issue in which the issue can be triaged and handled.
+Do not open a public issue to report a security vulnerability.  Please send a message to security@webtide.com and we will create a private issue in which the issue can be triaged and handled.
 
 ## Handling a Vulnerability
 
-The [following checklist](https://www.eclipse.org/jetty/security_processes.php) is used to handle security issues:
+The following checklist is used to handle security issues:
 
 - [ ] On receipt of a security report via security@webtide.com or other channels, if it cannot be trivially dismissed (already fixed, known not a problem, etc.), then a Github security advisory is created by project leadership.
 - [ ] Copy this list as a markdown in the security advisory for tracking the completion of various tasks.

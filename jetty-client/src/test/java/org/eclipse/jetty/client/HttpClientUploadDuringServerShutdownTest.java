@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -33,6 +33,7 @@ import org.eclipse.jetty.server.Request;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.ServerConnector;
 import org.eclipse.jetty.server.handler.AbstractHandler;
+import org.eclipse.jetty.util.NanoTime;
 import org.eclipse.jetty.util.thread.QueuedThreadPool;
 import org.junit.jupiter.api.Test;
 
@@ -67,12 +68,7 @@ public class HttpClientUploadDuringServerShutdownTest
                         int read = input.read(buffer);
                         if (read < 0)
                             break;
-                        long now = System.nanoTime();
-                        long sleep = TimeUnit.MICROSECONDS.toNanos(1);
-                        while (System.nanoTime() < now + sleep)
-                        {
-                            // Wait.
-                        }
+                        NanoTime.spinWait(TimeUnit.MICROSECONDS.toNanos(1));
                     }
                 }
             });

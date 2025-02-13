@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -34,20 +34,23 @@ import org.eclipse.jetty.io.CyclicTimeouts;
 import org.eclipse.jetty.util.BlockingArrayQueue;
 import org.eclipse.jetty.util.Callback;
 import org.eclipse.jetty.util.HostPort;
+import org.eclipse.jetty.util.NanoTime;
 import org.eclipse.jetty.util.Promise;
 import org.eclipse.jetty.util.annotation.ManagedAttribute;
 import org.eclipse.jetty.util.annotation.ManagedObject;
 import org.eclipse.jetty.util.component.ContainerLifeCycle;
 import org.eclipse.jetty.util.component.Dumpable;
 import org.eclipse.jetty.util.component.DumpableCollection;
+import org.eclipse.jetty.util.component.LifeCycle;
 import org.eclipse.jetty.util.ssl.SslContextFactory;
+import org.eclipse.jetty.util.thread.AutoLock;
 import org.eclipse.jetty.util.thread.Scheduler;
 import org.eclipse.jetty.util.thread.Sweeper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 @ManagedObject
-public abstract class HttpDestination extends ContainerLifeCycle implements Destination, Closeable, Callback, Dumpable
+public abstract class HttpDestination extends ContainerLifeCycle implements Destination, Closeable, Callback, Dumpable, Sweeper.Sweepable
 {
     private static final Logger LOG = LoggerFactory.getLogger(HttpDestination.class);
 
@@ -60,7 +63,10 @@ public abstract class HttpDestination extends ContainerLifeCycle implements Dest
     private final ClientConnectionFactory connectionFactory;
     private final HttpField hostField;
     private final RequestTimeouts requestTimeouts;
+    private final AutoLock staleLock = new AutoLock();
     private ConnectionPool connectionPool;
+    private boolean stale;
+    private long activeNanoTime;
 
     public HttpDestination(HttpClient client, Origin origin, boolean intrinsicallySecure)
     {
@@ -104,23 +110,71 @@ public abstract class HttpDestination extends ContainerLifeCycle implements Dest
         connectionPool.accept(connection);
     }
 
+    public boolean stale()
+    {
+        try (AutoLock l = staleLock.lock())
+        {
+            boolean stale = this.stale;
+            if (!stale)
+                this.activeNanoTime = NanoTime.now();
+            if (LOG.isDebugEnabled())
+                LOG.debug("Stale check done with result {} on {}", stale, this);
+            return stale;
+        }
+    }
+
+    @Override
+    public boolean sweep()
+    {
+        if (LOG.isDebugEnabled())
+            LOG.debug("Sweep check in progress on {}", this);
+        boolean remove = false;
+        try (AutoLock l = staleLock.lock())
+        {
+            boolean stale = exchanges.isEmpty() && connectionPool.isEmpty();
+            if (!stale)
+            {
+                this.activeNanoTime = NanoTime.now();
+            }
+            else if (NanoTime.millisSince(activeNanoTime) >= getHttpClient().getDestinationIdleTimeout())
+            {
+                this.stale = true;
+                remove = true;
+            }
+        }
+        if (remove)
+        {
+            getHttpClient().removeDestination(this);
+            LifeCycle.stop(this);
+        }
+        if (LOG.isDebugEnabled())
+            LOG.debug("Sweep check done with result {} on {}", remove, this);
+        return remove;
+    }
+
     @Override
     protected void doStart() throws Exception
     {
         this.connectionPool = newConnectionPool(client);
         addBean(connectionPool, true);
         super.doStart();
-        Sweeper sweeper = client.getBean(Sweeper.class);
-        if (sweeper != null && connectionPool instanceof Sweeper.Sweepable)
-            sweeper.offer((Sweeper.Sweepable)connectionPool);
+        Sweeper connectionPoolSweeper = client.getBean(Sweeper.class);
+        if (connectionPoolSweeper != null && connectionPool instanceof Sweeper.Sweepable)
+            connectionPoolSweeper.offer((Sweeper.Sweepable)connectionPool);
+        Sweeper destinationSweeper = getHttpClient().getDestinationSweeper();
+        if (destinationSweeper != null)
+            destinationSweeper.offer(this);
     }
 
     @Override
     protected void doStop() throws Exception
     {
-        Sweeper sweeper = client.getBean(Sweeper.class);
-        if (sweeper != null && connectionPool instanceof Sweeper.Sweepable)
-            sweeper.remove((Sweeper.Sweepable)connectionPool);
+        Sweeper destinationSweeper = getHttpClient().getDestinationSweeper();
+        if (destinationSweeper != null)
+            destinationSweeper.remove(this);
+        Sweeper connectionPoolSweeper = client.getBean(Sweeper.class);
+        if (connectionPoolSweeper != null && connectionPool instanceof Sweeper.Sweepable)
+            connectionPoolSweeper.remove((Sweeper.Sweepable)connectionPool);
         super.doStop();
         removeBean(connectionPool);
     }
@@ -132,7 +186,10 @@ public abstract class HttpDestination extends ContainerLifeCycle implements Dest
 
     protected Queue<HttpExchange> newExchangeQueue(HttpClient client)
     {
-        return new BlockingArrayQueue<>(client.getMaxRequestsQueuedPerDestination());
+        int maxCapacity = client.getMaxRequestsQueuedPerDestination();
+        if (maxCapacity > 32)
+            return new BlockingArrayQueue<>(32, 32, maxCapacity);
+        return new BlockingArrayQueue<>(maxCapacity);
     }
 
     protected ClientConnectionFactory newSslClientConnectionFactory(SslContextFactory.Client sslContextFactory, ClientConnectionFactory connectionFactory)
@@ -254,6 +311,7 @@ public abstract class HttpDestination extends ContainerLifeCycle implements Dest
         {
             if (enqueue(exchanges, exchange))
             {
+                request.sent();
                 requestTimeouts.schedule(exchange);
                 if (!client.isRunning() && exchanges.remove(exchange))
                 {
@@ -446,11 +504,7 @@ public abstract class HttpDestination extends ContainerLifeCycle implements Dest
     {
         boolean removed = connectionPool.remove(connection);
 
-        if (getHttpExchanges().isEmpty())
-        {
-            tryRemoveIdleDestination();
-        }
-        else if (removed)
+        if (removed)
         {
             // Process queued requests that may be waiting.
             // We may create a connection that is not
@@ -475,22 +529,6 @@ public abstract class HttpDestination extends ContainerLifeCycle implements Dest
         {
             exchange.getRequest().abort(cause);
         }
-        if (exchanges.isEmpty())
-            tryRemoveIdleDestination();
-    }
-
-    private void tryRemoveIdleDestination()
-    {
-        if (getHttpClient().isRemoveIdleDestinations() && connectionPool.isEmpty())
-        {
-            // There is a race condition between this thread removing the destination
-            // and another thread queueing a request to this same destination.
-            // If this destination is removed, but the request queued, a new connection
-            // will be opened, the exchange will be executed and eventually the connection
-            // will idle timeout and be closed. Meanwhile a new destination will be created
-            // in HttpClient and will be used for other requests.
-            getHttpClient().removeDestination(this);
-        }
     }
 
     @Override
@@ -504,16 +542,39 @@ public abstract class HttpDestination extends ContainerLifeCycle implements Dest
         return getOrigin().asString();
     }
 
+    @ManagedAttribute("For how long this destination has been idle in ms")
+    public long getIdle()
+    {
+        if (getHttpClient().getDestinationIdleTimeout() <= 0L)
+            return -1;
+        try (AutoLock l = staleLock.lock())
+        {
+            return NanoTime.millisSince(activeNanoTime);
+        }
+    }
+
+    @ManagedAttribute("Whether this destinations is stale")
+    public boolean isStale()
+    {
+        try (AutoLock l = staleLock.lock())
+        {
+            return this.stale;
+        }
+    }
+
     @Override
     public String toString()
     {
-        return String.format("%s[%s]@%x%s,queue=%d,pool=%s",
+        return String.format("%s[%s]@%x%s,state=%s,queue=%d,pool=%s,stale=%b,idle=%d",
             HttpDestination.class.getSimpleName(),
             getOrigin(),
             hashCode(),
             proxy == null ? "" : "(via " + proxy + ")",
+            getState(),
             getQueuedRequestCount(),
-            getConnectionPool());
+            getConnectionPool(),
+            isStale(),
+            getIdle());
     }
 
     @FunctionalInterface

@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -63,6 +63,7 @@ import org.eclipse.jetty.server.Handler;
 import org.eclipse.jetty.server.HttpConfiguration;
 import org.eclipse.jetty.server.Request;
 import org.eclipse.jetty.util.Callback;
+import org.eclipse.jetty.util.NanoTime;
 import org.eclipse.jetty.util.Promise;
 import org.eclipse.jetty.util.thread.QueuedThreadPool;
 import org.hamcrest.Matchers;
@@ -503,11 +504,10 @@ public class MaxConcurrentStreamsTest extends AbstractTest
         // Wait until TCP congested.
         assertTrue(clientEndPointLatch.await(5, TimeUnit.SECONDS));
         AbstractEndPoint clientEndPoint = clientEndPointRef.get();
-        long start = System.nanoTime();
+        long start = NanoTime.now();
         while (!clientEndPoint.getWriteFlusher().isPending())
         {
-            long elapsed = System.nanoTime() - start;
-            assertThat(TimeUnit.NANOSECONDS.toSeconds(elapsed), Matchers.lessThan(15L));
+            assertThat(NanoTime.secondsSince(start), Matchers.lessThan(15L));
             Thread.sleep(100);
         }
         // Wait for the selector to update the SelectionKey to OP_WRITE.

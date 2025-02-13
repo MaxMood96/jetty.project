@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -268,7 +268,7 @@ public class PerMessageDeflateExtension extends AbstractExtension implements Dem
         @Override
         protected boolean onFrame(Frame frame, Callback callback, boolean batch)
         {
-            if (OpCode.isControlFrame(frame.getOpCode()))
+            if (frame.isControlFrame())
             {
                 nextOutgoingFrame(frame, callback, batch);
                 return true;
@@ -373,7 +373,7 @@ public class PerMessageDeflateExtension extends AbstractExtension implements Dem
         {
             if (first)
             {
-                if (OpCode.isControlFrame(frame.getOpCode()))
+                if (frame.isControlFrame())
                 {
                     emitFrame(frame, callback);
                     return true;
@@ -464,16 +464,23 @@ public class PerMessageDeflateExtension extends AbstractExtension implements Dem
             chunk.setPayload(payload);
             chunk.setFin(frame.isFin() && complete);
 
-            boolean succeedCallback = complete;
+            // If we are complete we return true, then DemandingFlusher.process() will null out the Frame and Callback.
+            // The application may decide to hold onto the buffer and delay completing the callback, so we need to capture
+            // references to these in the payloadCallback and not rely on state of the flusher which may have moved on.
+            // This flusher could be failed while the application already has the payloadCallback, so we need protection against
+            // the flusher failing and the application completing the callback, that's why we use the payload AtomicReference.
+            boolean completeCallback = complete;
             AtomicReference<ByteBuffer> payloadRef = _payloadRef;
             Callback payloadCallback = Callback.from(() ->
             {
                 getBufferPool().release(payloadRef.getAndSet(null));
-                if (succeedCallback)
+                if (completeCallback)
                     callback.succeeded();
             }, t ->
             {
                 getBufferPool().release(payloadRef.getAndSet(null));
+                if (completeCallback)
+                    callback.failed(t);
                 failFlusher(t);
             });
 

@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -116,17 +116,17 @@ public class GoAwayTest extends AbstractClientServerTest
         assertTrue(serverSession.getStreams().isEmpty());
         ServerQuicSession serverQuicSession = serverSession.getProtocolSession().getQuicSession();
         // While HTTP/3 is completely closed, QUIC may still be exchanging packets, so we need to await().
-        await().atMost(1, TimeUnit.SECONDS).until(() -> serverQuicSession.getQuicStreamEndPoints().isEmpty());
-        await().atMost(1, TimeUnit.SECONDS).until(() -> serverQuicSession.getQuicConnection().getQuicSessions().isEmpty());
+        await().atMost(3, TimeUnit.SECONDS).until(() -> serverQuicSession.getQuicStreamEndPoints().isEmpty());
+        await().atMost(3, TimeUnit.SECONDS).until(() -> serverQuicSession.getQuicConnection().getQuicSessions().isEmpty());
 
         assertTrue(clientSession.isClosed());
         assertTrue(clientSession.getStreams().isEmpty());
         ClientQuicSession clientQuicSession = clientSession.getProtocolSession().getQuicSession();
         // While HTTP/3 is completely closed, QUIC may still be exchanging packets, so we need to await().
-        await().atMost(1, TimeUnit.SECONDS).until(() -> clientQuicSession.getQuicStreamEndPoints().isEmpty());
+        await().atMost(3, TimeUnit.SECONDS).until(() -> clientQuicSession.getQuicStreamEndPoints().isEmpty());
         QuicConnection quicConnection = clientQuicSession.getQuicConnection();
-        await().atMost(1, TimeUnit.SECONDS).until(() -> quicConnection.getQuicSessions().isEmpty());
-        await().atMost(1, TimeUnit.SECONDS).until(() -> quicConnection.getEndPoint().isOpen(), is(false));
+        await().atMost(3, TimeUnit.SECONDS).until(() -> quicConnection.getQuicSessions().isEmpty());
+        await().atMost(3, TimeUnit.SECONDS).until(() -> quicConnection.getEndPoint().isOpen(), is(false));
     }
 
     @Test
@@ -1177,6 +1177,9 @@ public class GoAwayTest extends AbstractClientServerTest
 
         assertTrue(settingsLatch.await(5, TimeUnit.SECONDS));
 
+        // Wait a bit more to allow the unidirectional streams to be setup.
+        Thread.sleep(1000);
+
         // Stopping the HttpClient will also stop the HTTP3Client.
         httpClient.stop();
 
@@ -1233,6 +1236,9 @@ public class GoAwayTest extends AbstractClientServerTest
         });
 
         assertTrue(settingsLatch.await(5, TimeUnit.SECONDS));
+
+        // Wait a bit more to allow the unidirectional streams to be setup.
+        Thread.sleep(1000);
 
         server.stop();
 

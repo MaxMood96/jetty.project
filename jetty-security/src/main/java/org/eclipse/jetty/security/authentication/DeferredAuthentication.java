@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -120,11 +120,8 @@ public class DeferredAuthentication implements Authentication.Deferred
         if (security != null)
         {
             security.logout(null);
-            if (_authenticator instanceof LoginAuthenticator)
-            {
-                ((LoginAuthenticator)_authenticator).logout(request);
-                return new LoggedOutAuthentication((LoginAuthenticator)_authenticator);
-            }
+            _authenticator.logout(request);
+            return new LoggedOutAuthentication(_authenticator);
         }
 
         return Authentication.UNAUTHENTICATED;

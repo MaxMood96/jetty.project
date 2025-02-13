@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -53,12 +53,15 @@ public class ServerHTTP2StreamEndPoint extends HTTP2StreamEndPoint implements HT
     {
         if (LOG.isDebugEnabled())
             LOG.debug("idle timeout on {}: {}", this, failure);
-        offerFailure(failure);
         boolean result = true;
         Connection connection = getConnection();
         if (connection != null)
             result = connection.onIdleExpired();
-        consumer.accept(() -> close(failure));
+        if (result) 
+        {
+            offerFailure(failure);
+            consumer.accept(() -> close(failure));
+        }
         return result;
     }
 

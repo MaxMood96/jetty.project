@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -16,9 +16,8 @@ package org.eclipse.jetty.http3.qpack.internal.instruction;
 import java.nio.ByteBuffer;
 
 import org.eclipse.jetty.http.HttpField;
+import org.eclipse.jetty.http.compression.NBitStringEncoder;
 import org.eclipse.jetty.http3.qpack.Instruction;
-import org.eclipse.jetty.http3.qpack.internal.util.HuffmanEncoder;
-import org.eclipse.jetty.http3.qpack.internal.util.NBitIntegerEncoder;
 import org.eclipse.jetty.io.ByteBufferPool;
 import org.eclipse.jetty.util.BufferUtil;
 
@@ -55,35 +54,13 @@ public class LiteralNameEntryInstruction implements Instruction
     @Override
     public void encode(ByteBufferPool.Lease lease)
     {
-        int size = (_huffmanName ? HuffmanEncoder.octetsNeeded(_name) : _name.length()) +
-            (_huffmanValue ? HuffmanEncoder.octetsNeeded(_value) : _value.length()) + 2;
+        int size = NBitStringEncoder.octetsNeeded(6, _name, _huffmanName) +
+            NBitStringEncoder.octetsNeeded(8, _value, _huffmanValue);
         ByteBuffer buffer = lease.acquire(size, false);
 
-        if (_huffmanName)
-        {
-            buffer.put((byte)(0x40 | 0x20));
-            NBitIntegerEncoder.encode(buffer, 5, HuffmanEncoder.octetsNeeded(_name));
-            HuffmanEncoder.encode(buffer, _name);
-        }
-        else
-        {
-            buffer.put((byte)(0x40));
-            NBitIntegerEncoder.encode(buffer, 5, _name.length());
-            buffer.put(_name.getBytes());
-        }
-
-        if (_huffmanValue)
-        {
-            buffer.put((byte)(0x80));
-            NBitIntegerEncoder.encode(buffer, 7, HuffmanEncoder.octetsNeeded(_value));
-            HuffmanEncoder.encode(buffer, _value);
-        }
-        else
-        {
-            buffer.put((byte)(0x00));
-            NBitIntegerEncoder.encode(buffer, 5, _value.length());
-            buffer.put(_value.getBytes());
-        }
+        buffer.put((byte)0x40); // Instruction Pattern.
+        NBitStringEncoder.encode(buffer, 6, _name, _huffmanName);
+        NBitStringEncoder.encode(buffer, 8, _value, _huffmanValue);
 
         BufferUtil.flipToFlush(buffer, 0);
         lease.append(buffer, true);
@@ -92,6 +69,6 @@ public class LiteralNameEntryInstruction implements Instruction
     @Override
     public String toString()
     {
-        return String.format("%s@%x", getClass().getSimpleName(), hashCode());
+        return String.format("%s@%x[name=%s,value=%s]", getClass().getSimpleName(), hashCode(), getName(), getValue());
     }
 }

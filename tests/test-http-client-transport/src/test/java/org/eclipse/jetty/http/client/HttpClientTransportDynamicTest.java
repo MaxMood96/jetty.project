@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -586,7 +586,7 @@ public class HttpClientTransportDynamicTest
         int proxyPort = connector.getLocalPort();
         // The proxy speaks both http/1.1 and h2c.
         Origin.Protocol proxyProtocol = new Origin.Protocol(List.of("http/1.1", "h2c"), false);
-        client.getProxyConfiguration().getProxies().add(new HttpProxy(new Origin.Address("localhost", proxyPort), false, proxyProtocol));
+        client.getProxyConfiguration().addProxy(new HttpProxy(new Origin.Address("localhost", proxyPort), false, proxyProtocol));
 
         // Make an upgrade request from HTTP/1.1 to H2C.
         int serverPort = proxyPort + 1; // Any port will do.

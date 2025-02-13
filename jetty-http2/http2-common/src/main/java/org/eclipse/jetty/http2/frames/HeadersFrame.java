@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -79,7 +79,6 @@ public class HeadersFrame extends StreamFrame
     @Override
     public String toString()
     {
-        return String.format("%s#%d{end=%b}%s", super.toString(), getStreamId(), endStream,
-            priority == null ? "" : String.format("+%s", priority));
+        return String.format("%s#%d[end=%b,{%s},priority=%s]", super.toString(), getStreamId(), isEndStream(), getMetaData(), getPriority());
     }
 }

@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -42,6 +42,7 @@ import org.eclipse.jetty.toolchain.test.MavenTestingUtils;
 import org.eclipse.jetty.toolchain.test.PathAssert;
 import org.eclipse.jetty.util.IO;
 import org.eclipse.jetty.util.URIUtil;
+import org.eclipse.jetty.util.component.LifeCycle;
 import org.eclipse.jetty.util.resource.PathResource;
 import org.eclipse.jetty.util.resource.Resource;
 import org.eclipse.jetty.webapp.WebAppContext;
@@ -69,46 +70,41 @@ public class XmlConfiguredJetty
     public static Server loadConfigurations(List<Resource> configurations, Map<String, String> properties)
         throws Exception
     {
-        XmlConfiguration last = null;
-        Object[] obj = new Object[configurations.size()];
+        Map<String, Object> idMap = configure(configurations, properties);
 
-        // Configure everything
-        for (int i = 0; i < configurations.size(); i++)
-        {
-            Resource config = configurations.get(i);
-            XmlConfiguration configuration = new XmlConfiguration(config);
-            if (last != null)
-                configuration.getIdMap().putAll(last.getIdMap());
-            configuration.getProperties().putAll(properties);
-            obj[i] = configuration.configure();
-            last = configuration;
-        }
+        Server server = (Server)idMap.get("Server");
 
-        // Test for Server Instance.
-        Server foundServer = null;
-        int serverCount = 0;
-        for (int i = 0; i < configurations.size(); i++)
-        {
-            if (obj[i] instanceof Server)
-            {
-                if (obj[i].equals(foundServer))
-                {
-                    // Identical server instance found
-                    break;
-                }
-                foundServer = (Server)obj[i];
-                serverCount++;
-            }
-        }
-
-        if (serverCount <= 0)
+        if (server == null)
         {
             throw new Exception("Load failed to configure a " + Server.class.getName());
         }
 
-        assertEquals(1, serverCount, "Server load count");
+        return server;
+    }
 
-        return foundServer;
+    /**
+     * Configure for the list of XML Resources and Properties.
+     *
+     * @param xmls the xml resources (in order of execution)
+     * @param properties the properties to use with the XML
+     * @return the ID Map of configured objects (key is the id name in the XML, and the value is configured object)
+     * @throws Exception if unable to create objects or read XML
+     */
+    public static Map<String, Object> configure(List<Resource> xmls, Map<String, String> properties) throws Exception
+    {
+        Map<String, Object> idMap = new HashMap<>();
+
+        // Configure everything
+        for (Resource xmlResource : xmls)
+        {
+            XmlConfiguration configuration = new XmlConfiguration(xmlResource);
+            configuration.getIdMap().putAll(idMap);
+            configuration.getProperties().putAll(properties);
+            configuration.configure();
+            idMap.putAll(configuration.getIdMap());
+        }
+
+        return idMap;
     }
 
     public XmlConfiguredJetty(Path testdir) throws IOException
@@ -373,7 +369,7 @@ public class XmlConfiguredJetty
     public void load() throws Exception
     {
         this._server = loadConfigurations(_xmlConfigurations, _properties);
-        this._server.setStopTimeout(10);
+        this._server.setStopTimeout(1000); //wait up to a second to stop
     }
 
     public void removeWebapp(String name)
@@ -424,6 +420,6 @@ public class XmlConfiguredJetty
 
     public void stop() throws Exception
     {
-        _server.stop();
+        LifeCycle.stop(_server);
     }
 }

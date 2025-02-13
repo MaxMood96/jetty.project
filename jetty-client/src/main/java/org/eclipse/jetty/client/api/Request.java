@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -43,11 +43,29 @@ import org.eclipse.jetty.util.Fields;
  * <p>You can create {@link Request} objects via {@link HttpClient#newRequest(String)} and
  * you can send them using either {@link #send()} for a blocking semantic, or
  * {@link #send(Response.CompleteListener)} for an asynchronous semantic.</p>
+ * <p>{@link Request} objects cannot be reused for other requests, not even for requests
+ * that have identical URI and headers.</p>
  *
  * @see Response
  */
 public interface Request
 {
+    /**
+     * <p>Returns the connection associated with this request.</p>
+     * <p>The connection is available only starting from the
+     * {@link #onRequestBegin(BeginListener) request begin} event,
+     * when a connection is associated with the request to be sent,
+     * otherwise {@code null} is returned.</p>
+     *
+     * @return the connection associated with this request,
+     * or {@code null} if there is no connection associated
+     * with this request
+     */
+    default Connection getConnection()
+    {
+        return null;
+    }
+
     /**
      * @return the URI scheme of this request, such as "http" or "https"
      */
@@ -420,6 +438,12 @@ public interface Request
     Request onResponseHeader(Response.HeaderListener listener);
 
     /**
+     * <p>Registers a listener for the headers event.</p>
+     * <p>Note that the response headers at this event
+     * may be different from the headers received in
+     * {@link #onResponseHeader(Response.HeaderListener)}
+     * as specified in {@link Response#getHeaders()}.</p>
+     *
      * @param listener a listener for response headers event
      * @return this request object
      */

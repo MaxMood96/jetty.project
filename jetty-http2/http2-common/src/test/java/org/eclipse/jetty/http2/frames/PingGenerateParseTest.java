@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -17,13 +17,13 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
-import java.util.function.UnaryOperator;
 
 import org.eclipse.jetty.http2.generator.HeaderGenerator;
 import org.eclipse.jetty.http2.generator.PingGenerator;
 import org.eclipse.jetty.http2.parser.Parser;
 import org.eclipse.jetty.io.ByteBufferPool;
 import org.eclipse.jetty.io.MappedByteBufferPool;
+import org.eclipse.jetty.util.NanoTime;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -40,15 +40,15 @@ public class PingGenerateParseTest
         PingGenerator generator = new PingGenerator(new HeaderGenerator());
 
         final List<PingFrame> frames = new ArrayList<>();
-        Parser parser = new Parser(byteBufferPool, new Parser.Listener.Adapter()
+        Parser parser = new Parser(byteBufferPool, 8192);
+        parser.init(new Parser.Listener.Adapter()
         {
             @Override
             public void onPing(PingFrame frame)
             {
                 frames.add(frame);
             }
-        }, 4096, 8192);
-        parser.init(UnaryOperator.identity());
+        });
 
         byte[] payload = new byte[8];
         new Random().nextBytes(payload);
@@ -81,15 +81,15 @@ public class PingGenerateParseTest
         PingGenerator generator = new PingGenerator(new HeaderGenerator());
 
         final List<PingFrame> frames = new ArrayList<>();
-        Parser parser = new Parser(byteBufferPool, new Parser.Listener.Adapter()
+        Parser parser = new Parser(byteBufferPool, 8192);
+        parser.init(new Parser.Listener.Adapter()
         {
             @Override
             public void onPing(PingFrame frame)
             {
                 frames.add(frame);
             }
-        }, 4096, 8192);
-        parser.init(UnaryOperator.identity());
+        });
 
         byte[] payload = new byte[8];
         new Random().nextBytes(payload);
@@ -122,18 +122,18 @@ public class PingGenerateParseTest
         PingGenerator generator = new PingGenerator(new HeaderGenerator());
 
         final List<PingFrame> frames = new ArrayList<>();
-        Parser parser = new Parser(byteBufferPool, new Parser.Listener.Adapter()
+        Parser parser = new Parser(byteBufferPool, 8192);
+        parser.init(new Parser.Listener.Adapter()
         {
             @Override
             public void onPing(PingFrame frame)
             {
                 frames.add(frame);
             }
-        }, 4096, 8192);
-        parser.init(UnaryOperator.identity());
+        });
 
         ByteBufferPool.Lease lease = new ByteBufferPool.Lease(byteBufferPool);
-        PingFrame ping = new PingFrame(System.nanoTime(), true);
+        PingFrame ping = new PingFrame(NanoTime.now(), true);
         generator.generate(lease, ping);
 
         for (ByteBuffer buffer : lease.getByteBuffers())

@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -31,6 +31,7 @@ import org.eclipse.jetty.quic.common.QuicStreamEndPoint;
 import org.eclipse.jetty.quic.quiche.QuicheConnection;
 import org.eclipse.jetty.server.ConnectionFactory;
 import org.eclipse.jetty.server.Connector;
+import org.eclipse.jetty.util.NanoTime;
 import org.eclipse.jetty.util.thread.Scheduler;
 
 /**
@@ -43,7 +44,7 @@ import org.eclipse.jetty.util.thread.Scheduler;
 public class ServerQuicSession extends QuicSession implements CyclicTimeouts.Expirable
 {
     private final Connector connector;
-    private long expireNanoTime;
+    private long expireNanoTime = Long.MAX_VALUE;
 
     protected ServerQuicSession(Executor executor, Scheduler scheduler, ByteBufferPool byteBufferPool, QuicheConnection quicheConnection, QuicConnection connection, SocketAddress remoteAddress, Connector connector)
     {
@@ -120,6 +121,6 @@ public class ServerQuicSession extends QuicSession implements CyclicTimeouts.Exp
     {
         long idleTimeout = getIdleTimeout();
         if (idleTimeout > 0)
-            expireNanoTime = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(idleTimeout);
+            expireNanoTime = NanoTime.now() + TimeUnit.MILLISECONDS.toNanos(idleTimeout);
     }
 }

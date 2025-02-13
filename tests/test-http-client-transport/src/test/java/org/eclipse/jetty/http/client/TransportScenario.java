@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -14,9 +14,11 @@
 package org.eclipse.jetty.http.client;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.lang.management.ManagementFactory;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.KeyStore;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.OptionalInt;
@@ -41,6 +43,8 @@ import org.eclipse.jetty.http3.client.http.HttpClientTransportOverHTTP3;
 import org.eclipse.jetty.http3.server.AbstractHTTP3ServerConnectionFactory;
 import org.eclipse.jetty.http3.server.HTTP3ServerConnectionFactory;
 import org.eclipse.jetty.http3.server.HTTP3ServerConnector;
+import org.eclipse.jetty.io.ArrayByteBufferPool;
+import org.eclipse.jetty.io.ByteBufferPool;
 import org.eclipse.jetty.io.ClientConnector;
 import org.eclipse.jetty.jmx.MBeanContainer;
 import org.eclipse.jetty.quic.server.QuicServerConnector;
@@ -120,9 +124,12 @@ public class TransportScenario
             case H2C:
             case H2:
             case FCGI:
-                return new ServerConnector(server, provideServerConnectionFactory(transport));
+                ByteBufferPool bufferPool = new ArrayByteBufferPool.Tracking();
+                return new ServerConnector(server, null, null, bufferPool, 1, 1, provideServerConnectionFactory(transport));
             case H3:
-                return new HTTP3ServerConnector(server, sslContextFactory, provideServerConnectionFactory(transport));
+                HTTP3ServerConnector http3ServerConnector = new HTTP3ServerConnector(server, sslContextFactory, provideServerConnectionFactory(transport));
+                http3ServerConnector.getQuicConfiguration().setPemWorkDirectory(Path.of(System.getProperty("java.io.tmpdir")));
+                return http3ServerConnector;
             case UNIX_DOMAIN:
                 UnixDomainServerConnector connector = new UnixDomainServerConnector(server, provideServerConnectionFactory(transport));
                 connector.setUnixDomainPath(unixDomainPath);
@@ -175,7 +182,6 @@ public class TransportScenario
                 ClientConnector clientConnector = http3Client.getClientConnector();
                 clientConnector.setSelectors(1);
                 clientConnector.setSslContextFactory(sslContextFactory);
-                http3Client.getQuicConfiguration().setVerifyPeerCertificates(false);
                 return new HttpClientTransportOverHTTP3(http3Client);
             }
             case FCGI:
@@ -344,6 +350,12 @@ public class TransportScenario
 
     public void startServer(Handler handler) throws Exception
     {
+        prepareServer(handler);
+        server.start();
+    }
+
+    protected void prepareServer(Handler handler)
+    {
         sslContextFactory = newServerSslContextFactory();
         QueuedThreadPool serverThreads = new QueuedThreadPool();
         serverThreads.setName("server");
@@ -353,23 +365,12 @@ public class TransportScenario
         server.addBean(mbeanContainer);
         connector = newServerConnector(server);
         server.addConnector(connector);
-
         server.setRequestLog((request, response) ->
         {
             int status = response.getCommittedMetaData().getStatus();
             requestLog.offer(String.format("%s %s %s %03d", request.getMethod(), request.getRequestURI(), request.getProtocol(), status));
         });
-
         server.setHandler(handler);
-
-        try
-        {
-            server.start();
-        }
-        catch (Exception e)
-        {
-            e.printStackTrace();
-        }
     }
 
     protected SslContextFactory.Server newServerSslContextFactory()
@@ -389,10 +390,23 @@ public class TransportScenario
 
     private void configureSslContextFactory(SslContextFactory sslContextFactory)
     {
-        sslContextFactory.setKeyStorePath("src/test/resources/keystore.p12");
-        sslContextFactory.setKeyStorePassword("storepwd");
-        sslContextFactory.setUseCipherSuitesOrder(true);
-        sslContextFactory.setCipherComparator(HTTP2Cipher.COMPARATOR);
+        try
+        {
+            KeyStore keystore = KeyStore.getInstance("PKCS12");
+            try (InputStream is = Files.newInputStream(Path.of("src/test/resources/keystore.p12")))
+            {
+                keystore.load(is, "storepwd".toCharArray());
+            }
+            sslContextFactory.setTrustStore(keystore);
+            sslContextFactory.setKeyStore(keystore);
+            sslContextFactory.setKeyStorePassword("storepwd");
+            sslContextFactory.setUseCipherSuitesOrder(true);
+            sslContextFactory.setCipherComparator(HTTP2Cipher.COMPARATOR);
+        }
+        catch (Exception e)
+        {
+            throw new RuntimeException(e);
+        }
     }
 
     public void stopClient() throws Exception

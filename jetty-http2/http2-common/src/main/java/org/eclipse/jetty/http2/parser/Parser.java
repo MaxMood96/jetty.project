@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -14,7 +14,6 @@
 package org.eclipse.jetty.http2.parser;
 
 import java.nio.ByteBuffer;
-import java.util.function.UnaryOperator;
 
 import org.eclipse.jetty.http2.ErrorCode;
 import org.eclipse.jetty.http2.Flags;
@@ -31,6 +30,7 @@ import org.eclipse.jetty.http2.frames.SettingsFrame;
 import org.eclipse.jetty.http2.frames.WindowUpdateFrame;
 import org.eclipse.jetty.http2.hpack.HpackDecoder;
 import org.eclipse.jetty.io.ByteBufferPool;
+import org.eclipse.jetty.util.NanoTime;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -44,36 +44,51 @@ public class Parser
     private static final Logger LOG = LoggerFactory.getLogger(Parser.class);
 
     private final ByteBufferPool byteBufferPool;
-    private final Listener listener;
     private final HeaderParser headerParser;
     private final HpackDecoder hpackDecoder;
     private final BodyParser[] bodyParsers;
+    private Listener listener;
     private UnknownBodyParser unknownBodyParser;
-    private int maxFrameLength = Frame.DEFAULT_MAX_LENGTH;
+    private int maxFrameSize = Frame.DEFAULT_MAX_LENGTH;
     private int maxSettingsKeys = SettingsFrame.DEFAULT_MAX_KEYS;
     private boolean continuation;
     private State state = State.HEADER;
+    private long beginNanoTime;
+    private boolean nanoTimeStored;
 
-    public Parser(ByteBufferPool byteBufferPool, Listener listener, int maxDynamicTableSize, int maxHeaderSize)
+    @Deprecated
+    public Parser(ByteBufferPool byteBufferPool, int maxTableCapacity, int maxHeaderSize)
     {
-        this(byteBufferPool, listener, maxDynamicTableSize, maxHeaderSize, RateControl.NO_RATE_CONTROL);
+        this(byteBufferPool, maxHeaderSize);
     }
 
-    public Parser(ByteBufferPool byteBufferPool, Listener listener, int maxDynamicTableSize, int maxHeaderSize, RateControl rateControl)
+    public Parser(ByteBufferPool byteBufferPool, int maxHeaderSize)
+    {
+        this(byteBufferPool, maxHeaderSize, RateControl.NO_RATE_CONTROL);
+    }
+
+    @Deprecated
+    public Parser(ByteBufferPool byteBufferPool, int maxTableSize, int maxHeaderSize, RateControl rateControl)
+    {
+        this(byteBufferPool, maxHeaderSize, rateControl);
+    }
+
+    public Parser(ByteBufferPool byteBufferPool, int maxHeaderSize, RateControl rateControl)
     {
         this.byteBufferPool = byteBufferPool;
-        this.listener = listener;
         this.headerParser = new HeaderParser(rateControl == null ? RateControl.NO_RATE_CONTROL : rateControl);
-        this.hpackDecoder = new HpackDecoder(maxDynamicTableSize, maxHeaderSize);
+        this.hpackDecoder = new HpackDecoder(maxHeaderSize, this::getBeginNanoTime);
         this.bodyParsers = new BodyParser[FrameType.values().length];
     }
 
-    public void init(UnaryOperator<Listener> wrapper)
+    public void init(Listener listener)
     {
-        Listener listener = wrapper.apply(this.listener);
+        if (this.listener != null)
+            throw new IllegalStateException("Invalid parser initialization");
+        this.listener = listener;
         unknownBodyParser = new UnknownBodyParser(headerParser, listener);
         HeaderBlockParser headerBlockParser = new HeaderBlockParser(headerParser, byteBufferPool, hpackDecoder, unknownBodyParser);
-        HeaderBlockFragments headerBlockFragments = new HeaderBlockFragments(byteBufferPool);
+        HeaderBlockFragments headerBlockFragments = new HeaderBlockFragments(byteBufferPool, hpackDecoder.getMaxHeaderListSize());
         bodyParsers[FrameType.DATA.getType()] = new DataBodyParser(headerParser, listener);
         bodyParsers[FrameType.HEADERS.getType()] = new HeadersBodyParser(headerParser, listener, headerBlockParser, headerBlockFragments);
         bodyParsers[FrameType.PRIORITY.getType()] = new PriorityBodyParser(headerParser, listener);
@@ -86,10 +101,39 @@ public class Parser
         bodyParsers[FrameType.CONTINUATION.getType()] = new ContinuationBodyParser(headerParser, listener, headerBlockParser, headerBlockFragments);
     }
 
+    protected Listener getListener()
+    {
+        return listener;
+    }
+
+    public HpackDecoder getHpackDecoder()
+    {
+        return hpackDecoder;
+    }
+
     private void reset()
     {
         headerParser.reset();
         state = State.HEADER;
+    }
+
+    public long getBeginNanoTime()
+    {
+        return beginNanoTime;
+    }
+
+    private void clearBeginNanoTime()
+    {
+        nanoTimeStored = false;
+    }
+
+    private void storeBeginNanoTime()
+    {
+        if (!nanoTimeStored)
+        {
+            beginNanoTime = NanoTime.now();
+            nanoTimeStored = true;
+        }
     }
 
     /**
@@ -113,6 +157,7 @@ public class Parser
                 {
                     case HEADER:
                     {
+                        storeBeginNanoTime();
                         if (!parseHeader(buffer))
                             return;
                         break;
@@ -121,6 +166,8 @@ public class Parser
                     {
                         if (!parseBody(buffer))
                             return;
+                        if (!continuation)
+                            clearBeginNanoTime();
                         break;
                     }
                     default:
@@ -146,7 +193,7 @@ public class Parser
         if (LOG.isDebugEnabled())
             LOG.debug("Parsed {} frame header from {}@{}", headerParser, buffer, Integer.toHexString(buffer.hashCode()));
 
-        if (headerParser.getLength() > getMaxFrameLength())
+        if (headerParser.getLength() > getMaxFrameSize())
             return connectionFailure(buffer, ErrorCode.FRAME_SIZE_ERROR, "invalid_frame_length");
 
         FrameType frameType = FrameType.from(getFrameType());
@@ -214,14 +261,26 @@ public class Parser
         return headerParser.hasFlag(bit);
     }
 
+    @Deprecated
     public int getMaxFrameLength()
     {
-        return maxFrameLength;
+        return getMaxFrameSize();
     }
 
-    public void setMaxFrameLength(int maxFrameLength)
+    @Deprecated
+    public void setMaxFrameLength(int maxFrameSize)
     {
-        this.maxFrameLength = maxFrameLength;
+        setMaxFrameSize(maxFrameSize);
+    }
+
+    public int getMaxFrameSize()
+    {
+        return maxFrameSize;
+    }
+
+    public void setMaxFrameSize(int maxFrameSize)
+    {
+        this.maxFrameSize = maxFrameSize;
     }
 
     public int getMaxSettingsKeys()
