@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -14,6 +14,7 @@
 package org.eclipse.jetty.client.api;
 
 import java.io.Closeable;
+import java.net.SocketAddress;
 
 import org.eclipse.jetty.util.Promise;
 
@@ -46,4 +47,20 @@ public interface Connection extends Closeable
      * @see #close()
      */
     boolean isClosed();
+
+    /**
+     * @return the local socket address associated with the connection
+     */
+    default SocketAddress getLocalSocketAddress()
+    {
+        return null;
+    }
+
+    /**
+     * @return the remote socket address associated with the connection
+     */
+    default SocketAddress getRemoteSocketAddress()
+    {
+        return null;
+    }
 }

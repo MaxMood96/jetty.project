@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -120,7 +120,7 @@ public class ServerGenerator extends Generator
     private ByteBuffer generateEndRequest(int request, boolean aborted)
     {
         request &= 0xFF_FF;
-        ByteBuffer endRequestBuffer = acquire(8);
+        ByteBuffer endRequestBuffer = acquire(16);
         BufferUtil.clearToFill(endRequestBuffer);
         endRequestBuffer.putInt(0x01_03_00_00 + request);
         endRequestBuffer.putInt(0x00_08_00_00);

@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -14,7 +14,11 @@
 package org.eclipse.jetty.http2.client;
 
 import java.io.IOException;
+import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
+import java.nio.channels.SelectionKey;
+import java.nio.channels.SocketChannel;
+import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -26,6 +30,7 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
 import org.eclipse.jetty.http.HttpFields;
+import org.eclipse.jetty.http.HttpStatus;
 import org.eclipse.jetty.http.HttpVersion;
 import org.eclipse.jetty.http.MetaData;
 import org.eclipse.jetty.http2.FlowControlStrategy;
@@ -38,7 +43,10 @@ import org.eclipse.jetty.http2.frames.DataFrame;
 import org.eclipse.jetty.http2.frames.GoAwayFrame;
 import org.eclipse.jetty.http2.frames.HeadersFrame;
 import org.eclipse.jetty.http2.frames.ResetFrame;
+import org.eclipse.jetty.http2.server.HTTP2CServerConnectionFactory;
 import org.eclipse.jetty.http2.server.HTTP2ServerConnectionFactory;
+import org.eclipse.jetty.io.ManagedSelector;
+import org.eclipse.jetty.io.SocketChannelEndPoint;
 import org.eclipse.jetty.server.HttpConfiguration;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.ServerConnector;
@@ -52,7 +60,9 @@ import org.hamcrest.Matchers;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
 
+import static org.awaitility.Awaitility.await;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.is;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -674,6 +684,125 @@ public class IdleTimeoutTest extends AbstractTest
         sleep(1000);
 
         assertThat(((ISession)client).updateSendWindow(0), Matchers.greaterThan(0));
+    }
+
+    @Test
+    public void testDisableStreamIdleTimeout() throws Exception
+    {
+        // Set the stream idle timeout to a negative value to disable it.
+        long streamIdleTimeout = -1;
+        start(new ServerSessionListener.Adapter()
+        {
+            @Override
+            public Stream.Listener onNewStream(Stream stream, HeadersFrame frame)
+            {
+                return new Stream.Listener.Adapter()
+                {
+                    @Override
+                    public void onData(Stream stream, DataFrame frame, Callback callback)
+                    {
+                        callback.succeeded();
+                        if (frame.isEndStream())
+                        {
+                            MetaData.Response response = new MetaData.Response(HttpVersion.HTTP_2, HttpStatus.OK_200, HttpFields.EMPTY);
+                            stream.headers(new HeadersFrame(stream.getId(), response, null, true));
+                        }
+                    }
+                };
+            }
+        }, h2 -> h2.setStreamIdleTimeout(streamIdleTimeout));
+        connector.setIdleTimeout(idleTimeout);
+
+        CountDownLatch responseLatch = new CountDownLatch(2);
+        CountDownLatch resetLatch = new CountDownLatch(1);
+        Session session = newClient(new Session.Listener.Adapter());
+        MetaData.Request metaData1 = newRequest("GET", "/1", HttpFields.EMPTY);
+        Stream stream1 = session.newStream(new HeadersFrame(metaData1, null, false), new Stream.Listener.Adapter()
+        {
+            @Override
+            public void onHeaders(Stream stream, HeadersFrame frame)
+            {
+                responseLatch.countDown();
+            }
+
+            @Override
+            public void onReset(Stream stream, ResetFrame frame)
+            {
+                resetLatch.countDown();
+            }
+        }).get(5, TimeUnit.SECONDS);
+
+        MetaData.Request metaData2 = newRequest("GET", "/2", HttpFields.EMPTY);
+        Stream stream2 = session.newStream(new HeadersFrame(metaData2, null, false), new Stream.Listener.Adapter()
+        {
+            @Override
+            public void onHeaders(Stream stream, HeadersFrame frame)
+            {
+                responseLatch.countDown();
+            }
+        }).get(5, TimeUnit.SECONDS);
+        // Keep the connection busy with the stream2, stream1 must not idle timeout.
+        for (int i = 0; i < 3; ++i)
+        {
+            Thread.sleep(idleTimeout / 2);
+            stream2.data(new DataFrame(stream2.getId(), ByteBuffer.allocate(64), false));
+        }
+
+        // Stream1 must not have idle timed out.
+        assertFalse(resetLatch.await(idleTimeout / 2, TimeUnit.MILLISECONDS));
+
+        // Finish the streams.
+        stream1.data(new DataFrame(stream1.getId(), ByteBuffer.allocate(128), true));
+        stream2.data(new DataFrame(stream2.getId(), ByteBuffer.allocate(64), true));
+
+        assertTrue(responseLatch.await(5, TimeUnit.SECONDS));
+    }
+
+    @Test
+    public void testIdleTimeoutWhenCongested() throws Exception
+    {
+        long idleTimeout = 1000;
+        HTTP2CServerConnectionFactory h2c = new HTTP2CServerConnectionFactory(new HttpConfiguration());
+        prepareServer(h2c);
+        server.removeConnector(connector);
+        connector = new ServerConnector(server, 1, 1, h2c)
+        {
+            @Override
+            protected SocketChannelEndPoint newEndPoint(SocketChannel channel, ManagedSelector selectSet, SelectionKey key)
+            {
+                SocketChannelEndPoint endpoint = new SocketChannelEndPoint(channel, selectSet, key, getScheduler())
+                {
+                    @Override
+                    public boolean flush(ByteBuffer... buffers)
+                    {
+                        // Fake TCP congestion.
+                        return false;
+                    }
+
+                    @Override
+                    protected void onIncompleteFlush()
+                    {
+                        // Do nothing here to avoid spin loop,
+                        // since the network is actually writable,
+                        // as we are only faking TCP congestion.
+                    }
+                };
+                endpoint.setIdleTimeout(getIdleTimeout());
+                return endpoint;
+            }
+        };
+        connector.setIdleTimeout(idleTimeout);
+        server.addConnector(connector);
+        server.start();
+
+        prepareClient();
+        client.start();
+
+        InetSocketAddress address = new InetSocketAddress("localhost", connector.getLocalPort());
+        // The connect() will complete exceptionally.
+        client.connect(address, new Session.Listener.Adapter());
+
+        await().atMost(Duration.ofMillis(5 * idleTimeout)).until(() -> connector.getConnectedEndPoints().size(), is(0));
     }
 
     private void sleep(long value)

@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -48,7 +48,7 @@ public class IntrospectionUtil
     {
         if (clazz == null)
             throw new NoSuchMethodException("No class");
-        if (methodName == null || methodName.trim().equals(""))
+        if (methodName == null || methodName.trim().isEmpty())
             throw new NoSuchMethodException("No method name");
 
         Method method = null;

@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -14,6 +14,7 @@
 package org.eclipse.jetty.fcgi.client.http;
 
 import java.io.EOFException;
+import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.AsynchronousCloseException;
 import java.util.Collections;
@@ -79,12 +80,24 @@ public class HttpConnectionOverFCGI extends AbstractConnection implements IConne
         this.parser = new ClientParser(new ResponseListener());
         requests.addLast(0);
         HttpClient client = destination.getHttpClient();
-        this.networkByteBufferPool = RetainableByteBufferPool.findOrAdapt(client, client.getByteBufferPool());
+        this.networkByteBufferPool = client.getByteBufferPool().asRetainableByteBufferPool();
     }
 
     public HttpDestination getHttpDestination()
     {
         return destination;
+    }
+
+    @Override
+    public SocketAddress getLocalSocketAddress()
+    {
+        return delegate.getLocalSocketAddress();
+    }
+
+    @Override
+    public SocketAddress getRemoteSocketAddress()
+    {
+        return delegate.getRemoteSocketAddress();
     }
 
     protected Flusher getFlusher()
@@ -261,6 +274,8 @@ public class HttpConnectionOverFCGI extends AbstractConnection implements IConne
             getEndPoint().close();
             if (LOG.isDebugEnabled())
                 LOG.debug("Closed {}", this);
+
+            delegate.destroy();
         }
     }
 
@@ -317,7 +332,7 @@ public class HttpConnectionOverFCGI extends AbstractConnection implements IConne
 
     private int acquireRequest()
     {
-        try (AutoLock l = lock.lock())
+        try (AutoLock ignored = lock.lock())
         {
             int last = requests.getLast();
             int request = last + 1;
@@ -328,7 +343,7 @@ public class HttpConnectionOverFCGI extends AbstractConnection implements IConne
 
     private void releaseRequest(int request)
     {
-        try (AutoLock l = lock.lock())
+        try (AutoLock ignored = lock.lock())
         {
             requests.removeFirstOccurrence(request);
         }
@@ -372,6 +387,18 @@ public class HttpConnectionOverFCGI extends AbstractConnection implements IConne
         }
 
         @Override
+        public SocketAddress getLocalSocketAddress()
+        {
+            return getEndPoint().getLocalSocketAddress();
+        }
+
+        @Override
+        public SocketAddress getRemoteSocketAddress()
+        {
+            return getEndPoint().getRemoteSocketAddress();
+        }
+
+        @Override
         public SendFailure send(HttpExchange exchange)
         {
             HttpRequest request = exchange.getRequest();
@@ -387,7 +414,6 @@ public class HttpConnectionOverFCGI extends AbstractConnection implements IConne
         public void close()
         {
             HttpConnectionOverFCGI.this.close();
-            destroy();
         }
 
         protected void close(Throwable failure)

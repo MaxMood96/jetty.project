@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -42,6 +42,22 @@ public class AutoLock implements AutoCloseable, Serializable
     public AutoLock lock()
     {
         _lock.lock();
+        return this;
+    }
+
+    /**
+     * <p>Tries to acquire the lock.</p>
+     * <p>Whether the lock was acquired can be tested
+     * with {@link #isHeldByCurrentThread()}.</p>
+     * <p>Typical usage of this method is in {@code toString()},
+     * to avoid deadlocks when the implementation needs to lock
+     * to retrieve a consistent state to produce the string.</p>
+     *
+     * @return this AutoLock for unlocking
+     */
+    public AutoLock tryLock()
+    {
+        _lock.tryLock();
         return this;
     }
 

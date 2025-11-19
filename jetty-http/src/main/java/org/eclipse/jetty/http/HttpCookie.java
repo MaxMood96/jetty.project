@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -18,12 +18,12 @@ import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 
 import org.eclipse.jetty.util.Attributes;
+import org.eclipse.jetty.util.NanoTime;
 import org.eclipse.jetty.util.QuotedStringTokenizer;
 import org.eclipse.jetty.util.StringUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-// TODO consider replacing this with java.net.HttpCookie (once it supports RFC6265)
 public class HttpCookie
 {
     private static final Logger LOG = LoggerFactory.getLogger(HttpCookie.class);
@@ -32,11 +32,18 @@ public class HttpCookie
     private static final String __01Jan1970_COOKIE = DateGenerator.formatCookieDate(0).trim();
 
     /**
-     * If this string is found within the comment parsed with {@link #isHttpOnlyInComment(String)} the check will return true
+     * String used in the {@code Comment} attribute of {@link java.net.HttpCookie},
+     * parsed with {@link #isHttpOnlyInComment(String)}, to support the {@code HttpOnly} attribute.
      **/
     public static final String HTTP_ONLY_COMMENT = "__HTTP_ONLY__";
     /**
-     * These strings are used by {@link #getSameSiteFromComment(String)} to check for a SameSite specifier in the comment
+     * String used in the {@code Comment} attribute of {@link java.net.HttpCookie},
+     * parsed with {@link #isPartitionedInComment(String)}, to support the {@code Partitioned} attribute.
+     **/
+    public static final String PARTITIONED_COMMENT = "__PARTITIONED__";
+    /**
+     * The strings used in the {@code Comment} attribute of {@link java.net.HttpCookie},
+     * parsed with {@link #getSameSiteFromComment(String)}, to support the {@code SameSite} attribute.
      **/
     private static final String SAME_SITE_COMMENT = "__SAME_SITE_";
     public static final String SAME_SITE_NONE_COMMENT = SAME_SITE_COMMENT + "NONE__";
@@ -52,7 +59,7 @@ public class HttpCookie
     {
         NONE("None"), STRICT("Strict"), LAX("Lax");
 
-        private String attributeValue;
+        private final String attributeValue;
 
         SameSite(String attributeValue)
         {
@@ -76,6 +83,7 @@ public class HttpCookie
     private final boolean _httpOnly;
     private final long _expiration;
     private final SameSite _sameSite;
+    private final boolean _partitioned;
 
     public HttpCookie(String name, String value)
     {
@@ -104,6 +112,11 @@ public class HttpCookie
 
     public HttpCookie(String name, String value, String domain, String path, long maxAge, boolean httpOnly, boolean secure, String comment, int version, SameSite sameSite)
     {
+        this(name, value, domain, path, maxAge, httpOnly, secure, comment, version, sameSite, false);
+    }
+
+    public HttpCookie(String name, String value, String domain, String path, long maxAge, boolean httpOnly, boolean secure, String comment, int version, SameSite sameSite, boolean partitioned)
+    {
         _name = name;
         _value = value;
         _domain = domain;
@@ -113,8 +126,9 @@ public class HttpCookie
         _secure = secure;
         _comment = comment;
         _version = version;
-        _expiration = maxAge < 0 ? -1 : System.nanoTime() + TimeUnit.SECONDS.toNanos(maxAge);
+        _expiration = maxAge < 0 ? -1 : NanoTime.now() + TimeUnit.SECONDS.toNanos(maxAge);
         _sameSite = sameSite;
+        _partitioned = partitioned;
     }
 
     public HttpCookie(String setCookie)
@@ -134,9 +148,11 @@ public class HttpCookie
         _secure = cookie.getSecure();
         _comment = cookie.getComment();
         _version = cookie.getVersion();
-        _expiration = _maxAge < 0 ? -1 : System.nanoTime() + TimeUnit.SECONDS.toNanos(_maxAge);
-        // support for SameSite values has not yet been added to java.net.HttpCookie
+        _expiration = _maxAge < 0 ? -1 : NanoTime.now() + TimeUnit.SECONDS.toNanos(_maxAge);
+        // Support for SameSite values has not yet been added to java.net.HttpCookie.
         _sameSite = getSameSiteFromComment(cookie.getComment());
+        // Support for Partitioned has not yet been added to java.net.HttpCookie.
+        _partitioned = isPartitionedInComment(cookie.getComment());
     }
 
     /**
@@ -225,7 +241,15 @@ public class HttpCookie
      */
     public boolean isExpired(long timeNanos)
     {
-        return _expiration >= 0 && timeNanos >= _expiration;
+        return _expiration != -1 && NanoTime.isBefore(_expiration, timeNanos);
+    }
+
+    /**
+     * @return whether this cookie is partitioned
+     */
+    public boolean isPartitioned()
+    {
+        return _partitioned;
     }
 
     /**
@@ -280,11 +304,9 @@ public class HttpCookie
 
     public String getSetCookie(CookieCompliance compliance)
     {
-        if (compliance == CookieCompliance.RFC6265)
+        if (compliance == null || CookieCompliance.RFC6265_LEGACY.compliesWith(compliance))
             return getRFC6265SetCookie();
-        if (compliance == CookieCompliance.RFC2965)
-            return getRFC2965SetCookie();
-        throw new IllegalStateException();
+        return getRFC2965SetCookie();
     }
 
     public String getRFC2965SetCookie()
@@ -420,6 +442,8 @@ public class HttpCookie
             buf.append("; SameSite=");
             buf.append(_sameSite.getAttributeValue());
         }
+        if (isPartitioned())
+            buf.append("; Partitioned");
 
         return buf.toString();
     }
@@ -429,23 +453,22 @@ public class HttpCookie
         return comment != null && comment.contains(HTTP_ONLY_COMMENT);
     }
 
+    public static boolean isPartitionedInComment(String comment)
+    {
+        return comment != null && comment.contains(PARTITIONED_COMMENT);
+    }
+
     public static SameSite getSameSiteFromComment(String comment)
     {
-        if (comment != null)
-        {
-            if (comment.contains(SAME_SITE_STRICT_COMMENT))
-            {
-                return SameSite.STRICT;
-            }
-            if (comment.contains(SAME_SITE_LAX_COMMENT))
-            {
-                return SameSite.LAX;
-            }
-            if (comment.contains(SAME_SITE_NONE_COMMENT))
-            {
-                return SameSite.NONE;
-            }
-        }
+        if (comment == null)
+            return null;
+
+        if (comment.contains(SAME_SITE_STRICT_COMMENT))
+            return SameSite.STRICT;
+        if (comment.contains(SAME_SITE_LAX_COMMENT))
+            return SameSite.LAX;
+        if (comment.contains(SAME_SITE_NONE_COMMENT))
+            return SameSite.NONE;
 
         return null;
     }
@@ -489,21 +512,25 @@ public class HttpCookie
     public static String getCommentWithoutAttributes(String comment)
     {
         if (comment == null)
-        {
             return null;
-        }
 
         String strippedComment = comment.trim();
 
         strippedComment = StringUtil.strip(strippedComment, HTTP_ONLY_COMMENT);
+        strippedComment = StringUtil.strip(strippedComment, PARTITIONED_COMMENT);
         strippedComment = StringUtil.strip(strippedComment, SAME_SITE_NONE_COMMENT);
         strippedComment = StringUtil.strip(strippedComment, SAME_SITE_LAX_COMMENT);
         strippedComment = StringUtil.strip(strippedComment, SAME_SITE_STRICT_COMMENT);
 
-        return strippedComment.length() == 0 ? null : strippedComment;
+        return strippedComment.isEmpty() ? null : strippedComment;
     }
 
     public static String getCommentWithAttributes(String comment, boolean httpOnly, SameSite sameSite)
+    {
+        return getCommentWithAttributes(comment, httpOnly, sameSite, false);
+    }
+
+    public static String getCommentWithAttributes(String comment, boolean httpOnly, SameSite sameSite, boolean partitioned)
     {
         if (comment == null && sameSite == null)
             return null;
@@ -535,6 +562,9 @@ public class HttpCookie
                     throw new IllegalArgumentException(sameSite.toString());
             }
         }
+
+        if (partitioned)
+            builder.append(PARTITIONED_COMMENT);
 
         if (builder.length() == 0)
             return null;

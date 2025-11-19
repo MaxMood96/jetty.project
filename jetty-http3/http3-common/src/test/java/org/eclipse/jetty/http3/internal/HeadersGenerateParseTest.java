@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -31,6 +31,7 @@ import org.eclipse.jetty.http3.qpack.QpackDecoder;
 import org.eclipse.jetty.http3.qpack.QpackEncoder;
 import org.eclipse.jetty.io.ByteBufferPool;
 import org.eclipse.jetty.io.NullByteBufferPool;
+import org.eclipse.jetty.util.NanoTime;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -47,16 +48,19 @@ public class HeadersGenerateParseTest
             .put("Cookie", "c=d");
         HeadersFrame input = new HeadersFrame(new MetaData.Request(HttpMethod.GET.asString(), uri, HttpVersion.HTTP_3, fields), true);
 
-        QpackEncoder encoder = new QpackEncoder(instructions -> {}, 100);
+        QpackEncoder encoder = new QpackEncoder(instructions -> {});
+        encoder.setMaxHeadersSize(4 * 1024);
         ByteBufferPool.Lease lease = new ByteBufferPool.Lease(new NullByteBufferPool());
-        new MessageGenerator(encoder, 8192, true).generate(lease, 0, input, null);
+        new MessageGenerator(encoder, true).generate(lease, 0, input, null);
 
-        QpackDecoder decoder = new QpackDecoder(instructions -> {}, 8192);
+        QpackDecoder decoder = new QpackDecoder(instructions -> {});
+        decoder.setMaxHeadersSize(4 * 1024);
+        decoder.setBeginNanoTimeSupplier(NanoTime::now);
         List<HeadersFrame> frames = new ArrayList<>();
         MessageParser parser = new MessageParser(new ParserListener()
         {
             @Override
-            public void onHeaders(long streamId, HeadersFrame frame)
+            public void onHeaders(long streamId, HeadersFrame frame, boolean wasBlocked)
             {
                 frames.add(frame);
             }

@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -40,6 +40,7 @@ import org.eclipse.jetty.http2.frames.DataFrame;
 import org.eclipse.jetty.http2.frames.Frame;
 import org.eclipse.jetty.http2.frames.HeadersFrame;
 import org.eclipse.jetty.http2.frames.ResetFrame;
+import org.eclipse.jetty.http2.generator.Generator;
 import org.eclipse.jetty.server.Request;
 import org.eclipse.jetty.server.Response;
 import org.eclipse.jetty.util.Callback;
@@ -368,7 +369,8 @@ public class TrailersTest extends AbstractTest
         completable.thenRun(() ->
         {
             // Disable checks for invalid headers.
-            ((HTTP2Session)session).getGenerator().setValidateHpackEncoding(false);
+            Generator generator = ((HTTP2Session)session).getGenerator();
+            generator.getHpackEncoder().setValidateEncoding(false);
             // Invalid trailer: cannot contain pseudo headers.
             HttpFields.Mutable trailerFields = HttpFields.build();
             trailerFields.put(HttpHeader.C_METHOD, "GET");

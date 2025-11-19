@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -19,6 +19,8 @@ import org.eclipse.jetty.util.BufferUtil;
 
 public class NullByteBufferPool implements ByteBufferPool
 {
+    private final RetainableByteBufferPool _retainableByteBufferPool = RetainableByteBufferPool.from(this);
+
     @Override
     public ByteBuffer acquire(int size, boolean direct)
     {
@@ -32,5 +34,11 @@ public class NullByteBufferPool implements ByteBufferPool
     public void release(ByteBuffer buffer)
     {
         BufferUtil.clear(buffer);
+    }
+
+    @Override
+    public RetainableByteBufferPool asRetainableByteBufferPool()
+    {
+        return _retainableByteBufferPool;
     }
 }

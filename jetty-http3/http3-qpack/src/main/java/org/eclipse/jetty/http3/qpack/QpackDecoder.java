@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -21,9 +21,11 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.LongSupplier;
 
 import org.eclipse.jetty.http.HttpField;
 import org.eclipse.jetty.http.MetaData;
+import org.eclipse.jetty.http.compression.NBitIntegerDecoder;
 import org.eclipse.jetty.http3.qpack.internal.QpackContext;
 import org.eclipse.jetty.http3.qpack.internal.instruction.InsertCountIncrementInstruction;
 import org.eclipse.jetty.http3.qpack.internal.instruction.SectionAcknowledgmentInstruction;
@@ -33,12 +35,12 @@ import org.eclipse.jetty.http3.qpack.internal.parser.EncodedFieldSection;
 import org.eclipse.jetty.http3.qpack.internal.table.DynamicTable;
 import org.eclipse.jetty.http3.qpack.internal.table.Entry;
 import org.eclipse.jetty.http3.qpack.internal.table.StaticTable;
-import org.eclipse.jetty.http3.qpack.internal.util.NBitIntegerParser;
 import org.eclipse.jetty.util.BufferUtil;
 import org.eclipse.jetty.util.component.Dumpable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import static org.eclipse.jetty.http3.qpack.QpackException.H3_GENERAL_PROTOCOL_ERROR;
 import static org.eclipse.jetty.http3.qpack.QpackException.QPACK_DECOMPRESSION_FAILED;
 import static org.eclipse.jetty.http3.qpack.QpackException.QPACK_ENCODER_STREAM_ERROR;
 
@@ -52,11 +54,13 @@ public class QpackDecoder implements Dumpable
     private final QpackContext _context;
     private final DecoderInstructionParser _parser;
     private final List<EncodedFieldSection> _encodedFieldSections = new ArrayList<>();
-    private final NBitIntegerParser _integerDecoder = new NBitIntegerParser();
+    private final NBitIntegerDecoder _integerDecoder = new NBitIntegerDecoder();
     private final InstructionHandler _instructionHandler = new InstructionHandler();
     private final Map<Long, AtomicInteger> _blockedStreams = new HashMap<>();
-    private int _maxHeaderSize;
+    private int _maxHeadersSize;
     private int _maxBlockedStreams;
+    private int _maxTableCapacity;
+    private LongSupplier _beginNanoTimeSupplier;
 
     private static class MetaDataNotification
     {
@@ -71,21 +75,24 @@ public class QpackDecoder implements Dumpable
             _handler = handler;
         }
 
-        public void notifyHandler()
+        public void notifyHandler(boolean wasBlocked)
         {
-            _handler.onMetaData(_streamId, _metaData);
+            _handler.onMetaData(_streamId, _metaData, wasBlocked);
         }
     }
 
-    /**
-     * @param maxHeaderSize The maximum allowed size of a headers block, expressed as total of all name and value characters, plus 32 per field
-     */
-    public QpackDecoder(Instruction.Handler handler, int maxHeaderSize)
+    public QpackDecoder(Instruction.Handler handler)
     {
         _context = new QpackContext();
         _handler = handler;
         _parser = new DecoderInstructionParser(_instructionHandler);
-        _maxHeaderSize = maxHeaderSize;
+    }
+
+    @Deprecated
+    public QpackDecoder(Instruction.Handler handler, int maxHeaderSize)
+    {
+        this(handler);
+        setMaxHeadersSize(maxHeaderSize);
     }
 
     QpackContext getQpackContext()
@@ -93,14 +100,22 @@ public class QpackDecoder implements Dumpable
         return _context;
     }
 
-    public int getMaxHeaderSize()
+    public int getMaxHeadersSize()
     {
-        return _maxHeaderSize;
+        return _maxHeadersSize;
     }
 
-    public void setMaxHeaderSize(int maxHeaderSize)
+    public void setBeginNanoTimeSupplier(LongSupplier beginNanoTimeSupplier)
     {
-        _maxHeaderSize = maxHeaderSize;
+        _beginNanoTimeSupplier = beginNanoTimeSupplier;
+    }
+
+    /**
+     * @param maxHeadersSize The maximum allowed size of a headers block, expressed as total of all name and value characters, plus 32 per field
+     */
+    public void setMaxHeadersSize(int maxHeadersSize)
+    {
+        _maxHeadersSize = maxHeadersSize;
     }
 
     public int getMaxBlockedStreams()
@@ -113,9 +128,19 @@ public class QpackDecoder implements Dumpable
         _maxBlockedStreams = maxBlockedStreams;
     }
 
+    public int getMaxTableCapacity()
+    {
+        return _maxTableCapacity;
+    }
+
+    public void setMaxTableCapacity(int maxTableCapacity)
+    {
+        _maxTableCapacity = maxTableCapacity;
+    }
+
     public interface Handler
     {
-        void onMetaData(long streamId, MetaData metadata);
+        void onMetaData(long streamId, MetaData metadata, boolean wasBlocked);
     }
 
     /**
@@ -136,8 +161,9 @@ public class QpackDecoder implements Dumpable
             LOG.debug("Decoding: streamId={}, buffer={}", streamId, BufferUtil.toDetailString(buffer));
 
         // If the buffer is big, don't even think about decoding it
-        int maxHeaderSize = getMaxHeaderSize();
-        if (buffer.remaining() > maxHeaderSize)
+        // Huffman may double the size, but it will only be a temporary allocation until detected in MetaDataBuilder.emit().
+        int maxHeaderSize = getMaxHeadersSize();
+        if (maxHeaderSize > 0 && buffer.remaining() > maxHeaderSize)
             throw new QpackException.SessionException(QPACK_DECOMPRESSION_FAILED, "header_too_large");
 
         _integerDecoder.setPrefix(8);
@@ -154,14 +180,14 @@ public class QpackDecoder implements Dumpable
         // Decode the Required Insert Count using the DynamicTable state.
         DynamicTable dynamicTable = _context.getDynamicTable();
         int insertCount = dynamicTable.getInsertCount();
-        int maxDynamicTableSize = dynamicTable.getCapacity();
+        int maxDynamicTableSize = getMaxTableCapacity();
         int requiredInsertCount = decodeInsertCount(encodedInsertCount, insertCount, maxDynamicTableSize);
 
         try
         {
             // Parse the buffer into an Encoded Field Section.
             int base = signBit ? requiredInsertCount - deltaBase - 1 : requiredInsertCount + deltaBase;
-            EncodedFieldSection encodedFieldSection = new EncodedFieldSection(streamId, handler, requiredInsertCount, base, buffer);
+            EncodedFieldSection encodedFieldSection = new EncodedFieldSection(streamId, handler, requiredInsertCount, base, buffer, _beginNanoTimeSupplier.getAsLong());
 
             // Decode it straight away if we can, otherwise add it to the list of EncodedFieldSections.
             if (requiredInsertCount <= insertCount)
@@ -176,7 +202,7 @@ public class QpackDecoder implements Dumpable
             else
             {
                 if (LOG.isDebugEnabled())
-                    LOG.debug("Deferred Decoding: streamId={}, encodedFieldSection={}", streamId, encodedFieldSection);
+                    LOG.debug("Deferred decoding: streamId={}, encodedFieldSection={}", streamId, encodedFieldSection);
                 AtomicInteger blockedFields = _blockedStreams.computeIfAbsent(streamId, id -> new AtomicInteger(0));
                 blockedFields.incrementAndGet();
                 if (_blockedStreams.size() > _maxBlockedStreams)
@@ -186,7 +212,7 @@ public class QpackDecoder implements Dumpable
 
             boolean hadMetaData = !_metaDataNotifications.isEmpty();
             notifyInstructionHandler();
-            notifyMetaDataHandler();
+            notifyMetaDataHandler(false);
             return hadMetaData;
         }
         catch (QpackException.SessionException e)
@@ -204,10 +230,13 @@ public class QpackDecoder implements Dumpable
      * the Encoder to the Decoder. This method will fully consume the supplied {@link ByteBuffer} and produce instructions
      * to update the state of the Decoder and its Dynamic Table.
      * @param buffer a buffer containing bytes from the Encoder stream.
-     * @throws QpackException if there was an error parsing or handling the instructions.
+     * @throws QpackException.SessionException if there was an error parsing or handling the instructions.
      */
-    public void parseInstructions(ByteBuffer buffer) throws QpackException
+    public void parseInstructions(ByteBuffer buffer) throws QpackException.SessionException
     {
+        if (LOG.isDebugEnabled())
+            LOG.debug("Parsing Instructions {}", BufferUtil.toDetailString(buffer));
+
         try
         {
             while (BufferUtil.hasContent(buffer))
@@ -215,7 +244,7 @@ public class QpackDecoder implements Dumpable
                 _parser.parse(buffer);
             }
             notifyInstructionHandler();
-            notifyMetaDataHandler();
+            notifyMetaDataHandler(true);
         }
         catch (QpackException.SessionException e)
         {
@@ -253,7 +282,7 @@ public class QpackDecoder implements Dumpable
             {
                 iterator.remove();
                 long streamId = encodedFieldSection.getStreamId();
-                MetaData metaData = encodedFieldSection.decode(_context, _maxHeaderSize);
+                MetaData metaData = encodedFieldSection.decode(_context, getMaxHeadersSize());
                 if (_blockedStreams.get(streamId).decrementAndGet() <= 0)
                     _blockedStreams.remove(streamId);
                 if (LOG.isDebugEnabled())
@@ -315,13 +344,16 @@ public class QpackDecoder implements Dumpable
         _instructions.clear();
     }
 
-    private void notifyMetaDataHandler()
+    private void notifyMetaDataHandler(boolean wasBlocked)
     {
-        for (MetaDataNotification notification : _metaDataNotifications)
-        {
-            notification.notifyHandler();
-        }
+        // Copy the list to avoid re-entrance, where the call to
+        // notifyHandler() may end up calling again this method.
+        List<MetaDataNotification> notifications = new ArrayList<>(_metaDataNotifications);
         _metaDataNotifications.clear();
+        for (MetaDataNotification notification : notifications)
+        {
+            notification.notifyHandler(wasBlocked);
+        }
     }
 
     InstructionHandler getInstructionHandler()
@@ -335,8 +367,10 @@ public class QpackDecoder implements Dumpable
     class InstructionHandler implements DecoderInstructionParser.Handler
     {
         @Override
-        public void onSetDynamicTableCapacity(int capacity)
+        public void onSetDynamicTableCapacity(int capacity) throws QpackException
         {
+            if (capacity > getMaxTableCapacity())
+                throw new QpackException.StreamException(H3_GENERAL_PROTOCOL_ERROR, "DynamicTable capacity exceeds max capacity");
             _context.getDynamicTable().setCapacity(capacity);
         }
 

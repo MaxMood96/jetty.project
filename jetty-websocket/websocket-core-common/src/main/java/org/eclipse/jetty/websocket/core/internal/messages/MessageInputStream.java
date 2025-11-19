@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -24,6 +24,7 @@ import java.util.concurrent.TimeUnit;
 import org.eclipse.jetty.util.BlockingArrayQueue;
 import org.eclipse.jetty.util.BufferUtil;
 import org.eclipse.jetty.util.Callback;
+import org.eclipse.jetty.util.IO;
 import org.eclipse.jetty.util.thread.AutoLock;
 import org.eclipse.jetty.websocket.core.Frame;
 import org.slf4j.Logger;
@@ -87,7 +88,7 @@ public class MessageInputStream extends InputStream implements MessageSink
             if (len < 0) // EOF
                 return -1;
             if (len > 0) // did read something
-                return buf[0];
+                return buf[0] & 0xFF;
             // reading nothing (len == 0) tries again
         }
     }
@@ -125,40 +126,6 @@ public class MessageInputStream extends InputStream implements MessageSink
         if (LOG.isDebugEnabled())
             LOG.debug("filled {} bytes from {}", fillLen, currentEntry);
         return fillLen;
-    }
-
-    @Override
-    public void close() throws IOException
-    {
-        if (LOG.isDebugEnabled())
-            LOG.debug("close()");
-
-        ArrayList<Entry> entries = new ArrayList<>();
-        try (AutoLock l = lock.lock())
-        {
-            if (closed)
-                return;
-            closed = true;
-
-            if (currentEntry != null)
-            {
-                entries.add(currentEntry);
-                currentEntry = null;
-            }
-
-            // Clear queue and fail all entries.
-            entries.addAll(buffers);
-            buffers.clear();
-            buffers.offer(CLOSED);
-        }
-
-        // Succeed all entries as we don't need them anymore (failing would close the connection).
-        for (Entry e : entries)
-        {
-            e.callback.succeeded();
-        }
-
-        super.close();
     }
 
     public void setTimeout(long timeoutMs)
@@ -216,6 +183,49 @@ public class MessageInputStream extends InputStream implements MessageSink
             close();
             throw new InterruptedIOException();
         }
+    }
+
+    @Override
+    public void close() throws IOException
+    {
+        fail(null);
+    }
+
+    @Override
+    public void fail(Throwable failure)
+    {
+        if (LOG.isDebugEnabled())
+            LOG.debug("close()");
+
+        ArrayList<Entry> entries = new ArrayList<>();
+        try (AutoLock l = lock.lock())
+        {
+            if (closed)
+                return;
+            closed = true;
+
+            if (currentEntry != null)
+            {
+                entries.add(currentEntry);
+                currentEntry = null;
+            }
+
+            // Clear queue and fail all entries.
+            entries.addAll(buffers);
+            buffers.clear();
+            buffers.offer(CLOSED);
+        }
+
+        // Succeed all entries as we don't need them anymore (failing would close the connection).
+        for (Entry e : entries)
+        {
+            if (failure == null)
+                e.callback.succeeded();
+            else
+                e.callback.failed(failure);
+        }
+
+        IO.close(super::close);
     }
 
     private static class Entry

@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -42,6 +42,11 @@ public class HTTP3StreamClient extends HTTP3Stream implements  Stream.Client
         return listener;
     }
 
+    public void onOpen()
+    {
+        notifyNewStream();
+    }
+
     public void setListener(Stream.Client.Listener listener)
     {
         this.listener = listener;
@@ -62,6 +67,20 @@ public class HTTP3StreamClient extends HTTP3Stream implements  Stream.Client
             notIdle();
             notifyResponse(frame);
             updateClose(frame.isLast(), false);
+        }
+    }
+
+    private void notifyNewStream()
+    {
+        Stream.Client.Listener listener = getListener();
+        try
+        {
+            if (listener != null)
+                listener.onNewStream(this);
+        }
+        catch (Throwable x)
+        {
+            LOG.info("Failure while notifying listener {}", listener, x);
         }
     }
 

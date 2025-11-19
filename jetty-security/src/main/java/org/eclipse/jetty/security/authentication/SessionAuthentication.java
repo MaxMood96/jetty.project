@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -22,6 +22,7 @@ import javax.servlet.http.HttpSessionBindingListener;
 import javax.servlet.http.HttpSessionEvent;
 
 import org.eclipse.jetty.security.AbstractUserAuthentication;
+import org.eclipse.jetty.security.Authenticator;
 import org.eclipse.jetty.security.LoginService;
 import org.eclipse.jetty.security.SecurityHandler;
 import org.eclipse.jetty.server.UserIdentity;
@@ -76,7 +77,13 @@ public class SessionAuthentication extends AbstractUserAuthentication
             return;
         }
 
-        LoginService loginService = security.getLoginService();
+        LoginService loginService;
+        Authenticator authenticator = security.getAuthenticator();
+        if (authenticator instanceof LoginAuthenticator)
+            loginService = ((LoginAuthenticator)authenticator).getLoginService();
+        else
+            loginService = security.getLoginService();
+
         if (loginService == null)
         {
             if (LOG.isDebugEnabled())

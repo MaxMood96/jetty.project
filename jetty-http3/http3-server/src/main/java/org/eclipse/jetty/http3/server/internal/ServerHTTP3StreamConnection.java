@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -46,7 +46,7 @@ public class ServerHTTP3StreamConnection extends HTTP3StreamConnection
     public Runnable onRequest(HTTP3StreamServer stream, HeadersFrame frame)
     {
         HttpTransportOverHTTP3 transport = new HttpTransportOverHTTP3(stream);
-        HttpChannelOverHTTP3 channel = new HttpChannelOverHTTP3(connector, httpConfiguration, getEndPoint(), transport, stream, this);
+        HttpChannelOverHTTP3 channel = new HttpChannelOverHTTP3(connector, httpConfiguration, getEndPoint(), transport, stream);
         stream.setAttachment(channel);
         return channel.onRequest(frame);
     }

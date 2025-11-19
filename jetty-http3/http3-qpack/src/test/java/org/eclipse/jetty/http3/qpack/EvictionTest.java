@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -20,6 +20,7 @@ import org.eclipse.jetty.http.HttpField;
 import org.eclipse.jetty.http.HttpFields;
 import org.eclipse.jetty.http.HttpVersion;
 import org.eclipse.jetty.http.MetaData;
+import org.eclipse.jetty.util.NanoTime;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -34,14 +35,15 @@ public class EvictionTest
     private final TestEncoderHandler _encoderHandler = new TestEncoderHandler();
     private final Random random = new Random();
 
-    private static final int MAX_BLOCKED_STREAMS = 5;
-    private static final int MAX_HEADER_SIZE = 1024;
-
     @BeforeEach
     public void before()
     {
-        _decoder = new QpackDecoder(_decoderHandler, MAX_HEADER_SIZE);
-        _encoder = new QpackEncoder(_encoderHandler, MAX_BLOCKED_STREAMS)
+        _decoder = new QpackDecoder(_decoderHandler);
+        _decoder.setMaxHeadersSize(1024);
+        _decoder.setMaxTableCapacity(4 * 1024);
+        _decoder.setBeginNanoTimeSupplier(NanoTime::now);
+
+        _encoder = new QpackEncoder(_encoderHandler)
         {
             @Override
             protected boolean shouldHuffmanEncode(HttpField httpField)
@@ -49,12 +51,14 @@ public class EvictionTest
                 return false;
             }
         };
+        _encoder.setMaxTableCapacity(4 * 1024);
+        _encoder.setTableCapacity(4 * 1024);
+        _encoder.setMaxBlockedStreams(5);
     }
 
     @Test
     public void test() throws Exception
     {
-        _encoder.setCapacity(1024);
         ByteBuffer encodedFields = ByteBuffer.allocate(1024);
 
         for (int i = 0; i < 10000; i++)

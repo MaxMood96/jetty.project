@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -13,6 +13,7 @@
 
 package org.eclipse.jetty.http3.client.http.internal;
 
+import java.net.SocketAddress;
 import java.nio.channels.AsynchronousCloseException;
 import java.util.Iterator;
 import java.util.Set;
@@ -51,6 +52,18 @@ public class HttpConnectionOverHTTP3 extends HttpConnection implements Connectio
     }
 
     @Override
+    public SocketAddress getLocalSocketAddress()
+    {
+        return session.getLocalSocketAddress();
+    }
+
+    @Override
+    public SocketAddress getRemoteSocketAddress()
+    {
+        return session.getRemoteSocketAddress();
+    }
+
+    @Override
     public int getMaxMultiplex()
     {
         // As weird as this is, RFC 9000 specifies a *cumulative* number
@@ -81,7 +94,13 @@ public class HttpConnectionOverHTTP3 extends HttpConnection implements Connectio
         HttpChannelOverHTTP3 channel = newHttpChannel();
         activeChannels.add(channel);
 
-        return send(channel, exchange);
+        SendFailure result = send(channel, exchange);
+        if (result != null)
+        {
+            activeChannels.remove(channel);
+            channel.destroy();
+        }
+        return result;
     }
 
     protected HttpChannelOverHTTP3 newHttpChannel()
@@ -91,9 +110,10 @@ public class HttpConnectionOverHTTP3 extends HttpConnection implements Connectio
 
     public void release(HttpChannelOverHTTP3 channel)
     {
+        boolean removed = activeChannels.remove(channel);
         if (LOG.isDebugEnabled())
-            LOG.debug("released {}", channel);
-        if (activeChannels.remove(channel))
+            LOG.debug("released {} {}", removed, channel);
+        if (removed)
             getHttpDestination().release(this);
         else
             channel.destroy();
@@ -139,5 +159,14 @@ public class HttpConnectionOverHTTP3 extends HttpConnection implements Connectio
         if (super.onIdleTimeout(idleTimeout, failure))
             close(failure);
         return false;
+    }
+
+    @Override
+    public String toString()
+    {
+        return String.format("%s(closed=%b)[%s]",
+            super.toString(),
+            isClosed(),
+            session);
     }
 }

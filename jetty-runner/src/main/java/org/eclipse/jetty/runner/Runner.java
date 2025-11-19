@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -579,7 +579,7 @@ public class Runner
     {
         System.err.println("WARNING: jetty-runner is deprecated.");
         System.err.println("         See Jetty Documentation for startup options");
-        System.err.println("         https://www.eclipse.org/jetty/documentation/");
+        System.err.println("         https://jetty.org/docs/");
 
         Runner runner = new Runner();
 

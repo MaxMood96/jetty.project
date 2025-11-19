@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -25,7 +25,7 @@ public class TestDecoderHandler implements QpackDecoder.Handler, Instruction.Han
     private final LinkedList<Instruction> _instructionList = new LinkedList<>();
 
     @Override
-    public void onMetaData(long streamId, MetaData metadata)
+    public void onMetaData(long streamId, MetaData metadata, boolean wasBlocked)
     {
         _metadataList.add(metadata);
     }

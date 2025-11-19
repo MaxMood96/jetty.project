@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -12,8 +12,6 @@
 //
 
 package org.eclipse.jetty.http3.internal;
-
-import java.util.concurrent.ThreadLocalRandom;
 
 public enum HTTP3ErrorCode
 {
@@ -45,9 +43,7 @@ public enum HTTP3ErrorCode
     public static long randomReservedCode()
     {
         // SPEC: reserved errors have the form 0x1F * n + 0x21.
-        // This constant avoids to overflow VarLenInt, which is how an error code is encoded.
-        long n = ThreadLocalRandom.current().nextLong(0x210842108421084L);
-        return 0x1F * n + 0x21;
+        return Grease.generateGreaseValue();
     }
 
     public long code()

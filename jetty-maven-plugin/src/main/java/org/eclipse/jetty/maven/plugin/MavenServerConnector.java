@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -50,6 +50,8 @@ public class MavenServerConnector extends ContainerLifeCycle implements Connecto
     private String name;
     private int port;
     private long idleTimeout;
+
+    private boolean reusePort;
 
     public MavenServerConnector()
     {
@@ -102,6 +104,7 @@ public class MavenServerConnector extends ContainerLifeCycle implements Connecto
         this.delegate.setPort(this.port);
         this.delegate.setHost(this.host);
         this.delegate.setIdleTimeout(idleTimeout);
+        this.delegate.setReusePort(this.reusePort);
         this.delegate.start();
 
         super.doStart();

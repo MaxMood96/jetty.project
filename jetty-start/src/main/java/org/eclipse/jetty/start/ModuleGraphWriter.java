@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -121,7 +121,7 @@ public class ModuleGraphWriter
         out.println("/*");
         out.println(" * GraphViz Graph of Jetty Modules");
         out.println(" * ");
-        out.println(" * Jetty: https://eclipse.org/jetty/");
+        out.println(" * Jetty: https://jetty.org/");
         out.println(" * GraphViz: http://graphviz.org/");
         out.println(" * ");
         out.println(" * To Generate Graph image using graphviz:");

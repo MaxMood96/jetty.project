@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -33,6 +33,7 @@ import org.eclipse.jetty.http3.frames.HeadersFrame;
 import org.eclipse.jetty.http3.internal.HTTP3Stream;
 import org.eclipse.jetty.util.BufferUtil;
 import org.eclipse.jetty.util.Callback;
+import org.eclipse.jetty.util.URIUtil;
 
 public class HttpSenderOverHTTP3 extends HttpSender
 {
@@ -63,7 +64,8 @@ public class HttpSenderOverHTTP3 extends HttpSender
             else
             {
                 HostPortHttpField authority = new HostPortHttpField(request.getHost(), request.getPort());
-                metaData = new MetaData.ConnectRequest(request.getScheme(), authority, request.getPath(), request.getHeaders(), upgradeProtocol);
+                String pathQuery = URIUtil.addPathQuery(request.getPath(), request.getQuery());
+                metaData = new MetaData.ConnectRequest(request.getScheme(), authority, pathQuery, request.getHeaders(), upgradeProtocol);
             }
         }
         else
@@ -138,7 +140,6 @@ public class HttpSenderOverHTTP3 extends HttpSender
 
     private Stream onNewStream(Stream stream, HttpRequest request)
     {
-        getHttpChannel().setStream(stream);
         long idleTimeout = request.getIdleTimeout();
         if (idleTimeout > 0)
             ((HTTP3Stream)stream).setIdleTimeout(idleTimeout);

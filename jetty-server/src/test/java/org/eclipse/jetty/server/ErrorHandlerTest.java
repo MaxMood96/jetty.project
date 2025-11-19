@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -154,6 +154,7 @@ public class ErrorHandlerTest
         assertThat("Response status code", response.getStatus(), is(404));
         assertThat("Response Content-Length", response.getField(HttpHeader.CONTENT_LENGTH).getIntValue(), greaterThan(0));
         assertThat("Response Content-Type", response.get(HttpHeader.CONTENT_TYPE), containsString("text/html;charset=ISO-8859-1"));
+        assertThat(response.get(HttpHeader.DATE), notNullValue());
         assertThat(response.getContent(), containsString("content=\"text/html;charset=ISO-8859-1\""));
 
         assertContent(response);

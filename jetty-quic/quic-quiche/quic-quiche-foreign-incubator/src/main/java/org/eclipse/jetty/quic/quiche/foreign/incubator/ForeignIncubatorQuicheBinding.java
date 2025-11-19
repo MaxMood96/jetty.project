@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -57,9 +57,9 @@ public class ForeignIncubatorQuicheBinding implements QuicheBinding
     }
 
     @Override
-    public QuicheConnection connect(QuicheConfig quicheConfig, InetSocketAddress peer, int connectionIdLength) throws IOException
+    public QuicheConnection connect(QuicheConfig quicheConfig, InetSocketAddress local, InetSocketAddress peer, int connectionIdLength) throws IOException
     {
-        return ForeignIncubatorQuicheConnection.connect(quicheConfig, peer, connectionIdLength);
+        return ForeignIncubatorQuicheConnection.connect(quicheConfig, local, peer, connectionIdLength);
     }
 
     @Override
@@ -69,9 +69,9 @@ public class ForeignIncubatorQuicheBinding implements QuicheBinding
     }
 
     @Override
-    public QuicheConnection tryAccept(QuicheConfig quicheConfig, QuicheConnection.TokenValidator tokenValidator, ByteBuffer packetRead, SocketAddress peer) throws IOException
+    public QuicheConnection tryAccept(QuicheConfig quicheConfig, QuicheConnection.TokenValidator tokenValidator, ByteBuffer packetRead, SocketAddress local, SocketAddress peer) throws IOException
     {
-        return ForeignIncubatorQuicheConnection.tryAccept(quicheConfig, tokenValidator, packetRead, peer);
+        return ForeignIncubatorQuicheConnection.tryAccept(quicheConfig, tokenValidator, packetRead, local, peer);
     }
 
     @Override

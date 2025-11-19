@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -17,13 +17,11 @@ import java.io.IOException;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.util.Objects;
-import java.util.concurrent.TimeUnit;
 
 import org.eclipse.jetty.util.BufferUtil;
 import org.eclipse.jetty.util.Callback;
 import org.eclipse.jetty.util.FutureCallback;
 import org.eclipse.jetty.websocket.api.BatchMode;
-import org.eclipse.jetty.websocket.api.StatusCode;
 import org.eclipse.jetty.websocket.api.WriteCallback;
 import org.eclipse.jetty.websocket.core.CoreSession;
 import org.eclipse.jetty.websocket.core.Frame;
@@ -46,37 +44,6 @@ public class JettyWebSocketRemoteEndpoint implements org.eclipse.jetty.websocket
     {
         this.coreSession = Objects.requireNonNull(coreSession);
         this.batchMode = batchMode;
-    }
-
-    /**
-     * Initiate close of the Remote with no status code (no payload)
-     *
-     * @since 10.0
-     */
-    public void close()
-    {
-        close(StatusCode.NO_CODE, null);
-    }
-
-    /**
-     * Initiate close of the Remote with specified status code and optional reason phrase
-     *
-     * @param statusCode the status code (must be valid and can be sent)
-     * @param reason optional reason code
-     * @since 10.0
-     */
-    public void close(int statusCode, String reason)
-    {
-        try
-        {
-            FutureCallback b = new FutureCallback();
-            coreSession.close(statusCode, reason, b);
-            b.block(getBlockingTimeout(), TimeUnit.MILLISECONDS);
-        }
-        catch (IOException e)
-        {
-            LOG.trace("IGNORED", e);
-        }
     }
 
     @Override
@@ -111,7 +78,7 @@ public class JettyWebSocketRemoteEndpoint implements org.eclipse.jetty.websocket
     {
         FutureCallback b = new FutureCallback();
         sendPartialBytes(fragment, isLast, b);
-        b.block(getBlockingTimeout(), TimeUnit.MILLISECONDS);
+        b.block();
     }
 
     @Override
@@ -153,7 +120,7 @@ public class JettyWebSocketRemoteEndpoint implements org.eclipse.jetty.websocket
     {
         FutureCallback b = new FutureCallback();
         sendPartialText(fragment, isLast, b);
-        b.block(getBlockingTimeout(), TimeUnit.MILLISECONDS);
+        b.block();
     }
 
     // FIXME: Remove the throws IOException from API for this method in the next major release.
@@ -221,7 +188,7 @@ public class JettyWebSocketRemoteEndpoint implements org.eclipse.jetty.websocket
     {
         FutureCallback b = new FutureCallback();
         coreSession.sendFrame(frame, b, false);
-        b.block(getBlockingTimeout(), TimeUnit.MILLISECONDS);
+        b.block();
     }
 
     @Override
@@ -264,12 +231,6 @@ public class JettyWebSocketRemoteEndpoint implements org.eclipse.jetty.websocket
     {
         FutureCallback b = new FutureCallback();
         coreSession.flush(b);
-        b.block(getBlockingTimeout(), TimeUnit.MILLISECONDS);
-    }
-
-    private long getBlockingTimeout()
-    {
-        long idleTimeout = coreSession.getIdleTimeout().toMillis();
-        return (idleTimeout > 0) ? idleTimeout + 1000 : idleTimeout;
+        b.block();
     }
 }

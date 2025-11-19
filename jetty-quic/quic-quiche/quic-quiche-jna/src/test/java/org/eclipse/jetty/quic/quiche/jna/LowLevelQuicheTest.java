@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -13,24 +13,29 @@
 
 package org.eclipse.jetty.quic.quiche.jna;
 
-import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
-import java.nio.file.Paths;
+import java.nio.file.Path;
+import java.security.KeyStore;
+import java.security.cert.Certificate;
 import java.util.AbstractMap;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 
 import org.eclipse.jetty.quic.quiche.QuicheConfig;
 import org.eclipse.jetty.quic.quiche.QuicheConnection;
-import org.eclipse.jetty.quic.quiche.SSLKeyPair;
+import org.eclipse.jetty.quic.quiche.PemExporter;
+import org.eclipse.jetty.toolchain.test.jupiter.WorkDir;
+import org.eclipse.jetty.toolchain.test.jupiter.WorkDirExtension;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 
 import static org.eclipse.jetty.quic.quiche.Quiche.QUICHE_MIN_CLIENT_INITIAL_LEN;
 import static org.hamcrest.MatcherAssert.assertThat;
@@ -38,8 +43,11 @@ import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.nullValue;
 import static org.hamcrest.core.Is.is;
 
+@ExtendWith(WorkDirExtension.class)
 public class LowLevelQuicheTest
 {
+    public WorkDir workDir;
+
     private final Collection<JnaQuicheConnection> connectionsToDisposeOf = new ArrayList<>();
 
     private InetSocketAddress clientSocketAddress;
@@ -48,6 +56,7 @@ public class LowLevelQuicheTest
     private QuicheConfig serverQuicheConfig;
     private JnaQuicheConnection.TokenMinter tokenMinter;
     private JnaQuicheConnection.TokenValidator tokenValidator;
+    private Certificate[] serverCertificateChain;
 
     @BeforeEach
     protected void setUp() throws Exception
@@ -55,10 +64,18 @@ public class LowLevelQuicheTest
         clientSocketAddress = new InetSocketAddress("localhost", 9999);
         serverSocketAddress = new InetSocketAddress("localhost", 8888);
 
+        KeyStore keyStore = KeyStore.getInstance("PKCS12");
+        try (InputStream is = getClass().getResourceAsStream("/keystore.p12"))
+        {
+            keyStore.load(is, "storepwd".toCharArray());
+        }
+        Path targetFolder = workDir.getEmptyPathDir();
+
         clientQuicheConfig = new QuicheConfig();
         clientQuicheConfig.setApplicationProtos("http/0.9");
         clientQuicheConfig.setDisableActiveMigration(true);
-        clientQuicheConfig.setVerifyPeer(false);
+        clientQuicheConfig.setVerifyPeer(true);
+        clientQuicheConfig.setTrustedCertsPemPath(PemExporter.exportTrustStore(keyStore, targetFolder).toString());
         clientQuicheConfig.setMaxIdleTimeout(1_000L);
         clientQuicheConfig.setInitialMaxData(10_000_000L);
         clientQuicheConfig.setInitialMaxStreamDataBidiLocal(10_000_000L);
@@ -68,11 +85,11 @@ public class LowLevelQuicheTest
         clientQuicheConfig.setInitialMaxStreamsBidi(100L);
         clientQuicheConfig.setCongestionControl(QuicheConfig.CongestionControl.CUBIC);
 
-        SSLKeyPair serverKeyPair = new SSLKeyPair(Paths.get(Objects.requireNonNull(getClass().getResource("/keystore.p12")).toURI()).toFile(), "PKCS12", "storepwd".toCharArray(), "mykey", "storepwd".toCharArray());
-        File[] pemFiles = serverKeyPair.export(new File(System.getProperty("java.io.tmpdir")));
+        serverCertificateChain = keyStore.getCertificateChain("mykey");
         serverQuicheConfig = new QuicheConfig();
-        serverQuicheConfig.setPrivKeyPemPath(pemFiles[0].getPath());
-        serverQuicheConfig.setCertChainPemPath(pemFiles[1].getPath());
+        Path[] keyPair = PemExporter.exportKeyPair(keyStore, "mykey", "storepwd".toCharArray(), targetFolder);
+        serverQuicheConfig.setPrivKeyPemPath(keyPair[0].toString());
+        serverQuicheConfig.setCertChainPemPath(keyPair[1].toString());
         serverQuicheConfig.setApplicationProtos("http/0.9");
         serverQuicheConfig.setVerifyPeer(false);
         serverQuicheConfig.setMaxIdleTimeout(1_000L);
@@ -133,6 +150,14 @@ public class LowLevelQuicheTest
 
         // assert that stream 0 is finished on server
         assertThat(serverQuicheConnection.isStreamFinished(0), is(true));
+
+        // assert that there is not client certificate
+        assertThat(serverQuicheConnection.getPeerCertificate(), nullValue());
+
+        // assert that the server certificate was correctly received by the client
+        byte[] peerCertificate = clientQuicheConnection.getPeerCertificate();
+        byte[] serverCert = serverCertificateChain[0].getEncoded();
+        assertThat(Arrays.equals(serverCert, peerCertificate), is(true));
     }
 
     @Test
@@ -166,6 +191,14 @@ public class LowLevelQuicheTest
 
         // assert that stream 0 is finished on server
         assertThat(serverQuicheConnection.isStreamFinished(0), is(true));
+
+        // assert that there is not client certificate
+        assertThat(serverQuicheConnection.getPeerCertificate(), nullValue());
+
+        // assert that the server certificate was correctly received by the client
+        byte[] peerCertificate = clientQuicheConnection.getPeerCertificate();
+        byte[] serverCert = serverCertificateChain[0].getEncoded();
+        assertThat(Arrays.equals(serverCert, peerCertificate), is(true));
     }
 
     @Test
@@ -181,6 +214,14 @@ public class LowLevelQuicheTest
 
         assertThat(clientQuicheConnection.getNegotiatedProtocol(), is("€"));
         assertThat(serverQuicheConnection.getNegotiatedProtocol(), is("€"));
+
+        // assert that there is not client certificate
+        assertThat(serverQuicheConnection.getPeerCertificate(), nullValue());
+
+        // assert that the server certificate was correctly received by the client
+        byte[] peerCertificate = clientQuicheConnection.getPeerCertificate();
+        byte[] serverCert = serverCertificateChain[0].getEncoded();
+        assertThat(Arrays.equals(serverCert, peerCertificate), is(true));
     }
 
     private void drainServerToFeedClient(Map.Entry<JnaQuicheConnection, JnaQuicheConnection> entry, int expectedSize) throws IOException
@@ -192,7 +233,7 @@ public class LowLevelQuicheTest
         int drained = serverQuicheConnection.drainCipherBytes(buffer);
         assertThat(drained, is(expectedSize));
         buffer.flip();
-        int fed = clientQuicheConnection.feedCipherBytes(buffer, serverSocketAddress);
+        int fed = clientQuicheConnection.feedCipherBytes(buffer, clientSocketAddress, serverSocketAddress);
         assertThat(fed, is(expectedSize));
     }
 
@@ -205,7 +246,7 @@ public class LowLevelQuicheTest
         int drained = clientQuicheConnection.drainCipherBytes(buffer);
         assertThat(drained, is(expectedSize));
         buffer.flip();
-        int fed = serverQuicheConnection.feedCipherBytes(buffer, clientSocketAddress);
+        int fed = serverQuicheConnection.feedCipherBytes(buffer, serverSocketAddress, clientSocketAddress);
         assertThat(fed, is(expectedSize));
     }
 
@@ -214,20 +255,20 @@ public class LowLevelQuicheTest
         ByteBuffer buffer = ByteBuffer.allocate(QUICHE_MIN_CLIENT_INITIAL_LEN);
         ByteBuffer buffer2 = ByteBuffer.allocate(QUICHE_MIN_CLIENT_INITIAL_LEN);
 
-        JnaQuicheConnection clientQuicheConnection = JnaQuicheConnection.connect(clientQuicheConfig, serverSocketAddress);
+        JnaQuicheConnection clientQuicheConnection = JnaQuicheConnection.connect(clientQuicheConfig, clientSocketAddress, serverSocketAddress);
         connectionsToDisposeOf.add(clientQuicheConnection);
 
         int drained = clientQuicheConnection.drainCipherBytes(buffer);
         assertThat(drained, is(1200));
         buffer.flip();
 
-        JnaQuicheConnection serverQuicheConnection = JnaQuicheConnection.tryAccept(serverQuicheConfig, tokenValidator, buffer, clientSocketAddress);
+        JnaQuicheConnection serverQuicheConnection = JnaQuicheConnection.tryAccept(serverQuicheConfig, tokenValidator, buffer, serverSocketAddress, clientSocketAddress);
         assertThat(serverQuicheConnection, is(nullValue()));
         boolean negotiated = JnaQuicheConnection.negotiate(tokenMinter, buffer, buffer2);
         assertThat(negotiated, is(true));
         buffer2.flip();
 
-        int fed = clientQuicheConnection.feedCipherBytes(buffer2, serverSocketAddress);
+        int fed = clientQuicheConnection.feedCipherBytes(buffer2, clientSocketAddress, serverSocketAddress);
         assertThat(fed, is(79));
 
         buffer.clear();
@@ -235,7 +276,7 @@ public class LowLevelQuicheTest
         assertThat(drained, is(1200));
         buffer.flip();
 
-        serverQuicheConnection = JnaQuicheConnection.tryAccept(serverQuicheConfig, tokenValidator, buffer, clientSocketAddress);
+        serverQuicheConnection = JnaQuicheConnection.tryAccept(serverQuicheConfig, tokenValidator, buffer, serverSocketAddress, clientSocketAddress);
         assertThat(serverQuicheConnection, is(not(nullValue())));
         connectionsToDisposeOf.add(serverQuicheConnection);
 
@@ -244,7 +285,7 @@ public class LowLevelQuicheTest
         assertThat(drained, is(1200));
         buffer.flip();
 
-        fed = clientQuicheConnection.feedCipherBytes(buffer, serverSocketAddress);
+        fed = clientQuicheConnection.feedCipherBytes(buffer, clientSocketAddress, serverSocketAddress);
         assertThat(fed, is(1200));
 
         assertThat(serverQuicheConnection.isConnectionEstablished(), is(false));
@@ -256,7 +297,7 @@ public class LowLevelQuicheTest
         for (String proto : clientQuicheConfig.getApplicationProtos())
             protosLen += 1 + proto.getBytes(LibQuiche.CHARSET).length;
 
-        drainServerToFeedClient(entry, 300 + protosLen);
+        drainServerToFeedClient(entry, 420 + protosLen);
         assertThat(serverQuicheConnection.isConnectionEstablished(), is(false));
         assertThat(clientQuicheConnection.isConnectionEstablished(), is(true));
 

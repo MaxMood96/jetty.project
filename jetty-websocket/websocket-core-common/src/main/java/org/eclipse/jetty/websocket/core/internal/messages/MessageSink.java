@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -29,4 +29,12 @@ public interface MessageSink
      * @param callback the callback for how the frame was consumed
      */
     void accept(Frame frame, Callback callback);
+
+    /**
+     * <p>Fail the message sink.</p>
+     * <p>Release any resources and fail all stored callbacks as {@link #accept(Frame, Callback)} will never be called again.</p>
+     *
+     * @param failure the failure that occurred.
+     */
+    void fail(Throwable failure);
 }

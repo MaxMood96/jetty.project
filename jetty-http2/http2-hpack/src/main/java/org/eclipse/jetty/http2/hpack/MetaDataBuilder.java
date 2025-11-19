@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -22,11 +22,12 @@ import org.eclipse.jetty.http.HttpScheme;
 import org.eclipse.jetty.http.HttpVersion;
 import org.eclipse.jetty.http.MetaData;
 import org.eclipse.jetty.http2.hpack.HpackException.SessionException;
+import org.eclipse.jetty.util.NanoTime;
 
 public class MetaDataBuilder
 {
-    private final int _maxSize;
     private final HttpFields.Mutable _fields = HttpFields.build();
+    private int _maxSize;
     private int _size;
     private Integer _status;
     private String _method;
@@ -34,10 +35,11 @@ public class MetaDataBuilder
     private HostPortHttpField _authority;
     private String _path;
     private String _protocol;
-    private long _contentLength = Long.MIN_VALUE;
+    private long _contentLength = -1;
     private HpackException.StreamException _streamException;
     private boolean _request;
     private boolean _response;
+    private long _beginNanoTime = Long.MIN_VALUE;
 
     /**
      * @param maxHeadersSize The maximum size of the headers, expressed as total name and value characters.
@@ -48,13 +50,23 @@ public class MetaDataBuilder
     }
 
     /**
-     * Get the maxSize.
-     *
      * @return the maxSize
      */
     public int getMaxSize()
     {
         return _maxSize;
+    }
+
+    public void setMaxSize(int maxSize)
+    {
+        _maxSize = maxSize;
+    }
+
+    public void setBeginNanoTime(long beginNanoTime)
+    {
+        if (beginNanoTime == Long.MIN_VALUE)
+            beginNanoTime++;
+        _beginNanoTime = beginNanoTime;
     }
 
     /**
@@ -67,17 +79,18 @@ public class MetaDataBuilder
         return _size;
     }
 
-    public void emit(HttpField field) throws HpackException.SessionException
+    public void emit(HttpField field) throws SessionException
     {
         HttpHeader header = field.getHeader();
         String name = field.getName();
-        if (name == null || name.length() == 0)
-            throw new HpackException.SessionException("Header size 0");
+        if (name == null || name.isEmpty())
+            throw new SessionException("Header size 0");
         String value = field.getValue();
         int fieldSize = name.length() + (value == null ? 0 : value.length());
         _size += fieldSize + 32;
-        if (_size > _maxSize)
-            throw new HpackException.SessionException("Header size %d > %d", _size, _maxSize);
+        int maxSize = getMaxSize();
+        if (maxSize > 0 && _size > maxSize)
+            throw new SessionException("Header size %d > %d", _size, maxSize);
 
         if (field instanceof StaticTableHttpField)
         {
@@ -142,7 +155,7 @@ public class MetaDataBuilder
                 case C_PATH:
                     if (checkPseudoHeader(header, _path))
                     {
-                        if (value != null && value.length() > 0)
+                        if (value != null && !value.isEmpty())
                             _path = value;
                         else
                             streamException("No Path");
@@ -196,7 +209,7 @@ public class MetaDataBuilder
         }
     }
 
-    protected void streamException(String messageFormat, Object... args)
+    public void streamException(String messageFormat, Object... args)
     {
         HpackException.StreamException stream = new HpackException.StreamException(messageFormat, args);
         if (_streamException == null)
@@ -244,12 +257,15 @@ public class MetaDataBuilder
                     if (_path == null)
                         throw new HpackException.StreamException("No Path");
                 }
+                long nanoTime = _beginNanoTime == Long.MIN_VALUE ? NanoTime.now() : _beginNanoTime;
+                _beginNanoTime = Long.MIN_VALUE;
                 if (isConnect)
-                    return new MetaData.ConnectRequest(_scheme, _authority, _path, fields, _protocol);
+                    return new MetaData.ConnectRequest(nanoTime, _scheme, _authority, _path, fields, _protocol);
                 else
                     return new MetaData.Request(
+                        nanoTime,
                         _method,
-                        _scheme == null ? HttpScheme.HTTP.asString() : _scheme.asString(),
+                        _scheme.asString(),
                         _authority,
                         _path,
                         HttpVersion.HTTP_2,
@@ -277,23 +293,7 @@ public class MetaDataBuilder
             _path = null;
             _protocol = null;
             _size = 0;
-            _contentLength = Long.MIN_VALUE;
+            _contentLength = -1;
         }
-    }
-
-    /**
-     * Check that the max size will not be exceeded.
-     *
-     * @param length the length
-     * @param huffman the huffman name
-     * @throws SessionException in case of size errors
-     */
-    public void checkSize(int length, boolean huffman) throws SessionException
-    {
-        // Apply a huffman fudge factor
-        if (huffman)
-            length = (length * 4) / 3;
-        if ((_size + length) > _maxSize)
-            throw new HpackException.SessionException("Header too large %d > %d", _size + length, _maxSize);
     }
 }

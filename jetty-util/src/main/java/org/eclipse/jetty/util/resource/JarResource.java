@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -175,7 +175,7 @@ public class JarResource extends URLResource
                         //directory. Remove the name of the subdirectory so
                         //that we don't wind up creating it too.
                         entryName = entryName.substring(subEntryName.length());
-                        if (!entryName.equals(""))
+                        if (!entryName.isEmpty())
                         {
                             //the entry is
                             shouldExtract = true;

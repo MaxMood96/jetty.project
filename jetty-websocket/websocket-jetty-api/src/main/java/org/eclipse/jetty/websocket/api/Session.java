@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -62,6 +62,32 @@ public interface Session extends WebSocketPolicy, Closeable
      * @see #disconnect()
      */
     void close(int statusCode, String reason);
+
+    /**
+     * Send a websocket Close frame, with status code.
+     * <p>
+     * This will enqueue a graceful close to the remote endpoint.
+     *
+     * @param statusCode the status code
+     * @param reason the (optional) reason. (can be null for no reason)
+     * @param callback the callback to track close frame sent (or failed)
+     * @see StatusCode
+     * @see #close()
+     * @see #close(CloseStatus)
+     * @see #disconnect()
+     */
+    default void close(int statusCode, String reason, WriteCallback callback)
+    {
+        try
+        {
+            close(statusCode, reason);
+            callback.writeSuccess();
+        }
+        catch (Throwable t)
+        {
+            callback.writeFailed(t);
+        }
+    }
 
     /**
      * Issue a harsh disconnect of the underlying connection.

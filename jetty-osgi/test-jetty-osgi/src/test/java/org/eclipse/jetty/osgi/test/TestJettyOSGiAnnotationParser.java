@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -32,8 +32,8 @@ import org.ops4j.pax.exam.Configuration;
 import org.ops4j.pax.exam.CoreOptions;
 import org.ops4j.pax.exam.Option;
 import org.ops4j.pax.exam.junit.PaxExam;
-import org.ops4j.pax.tinybundles.core.TinyBundle;
-import org.ops4j.pax.tinybundles.core.TinyBundles;
+import org.ops4j.pax.tinybundles.TinyBundle;
+import org.ops4j.pax.tinybundles.TinyBundles;
 import org.osgi.framework.Bundle;
 import org.osgi.framework.BundleContext;
 
@@ -72,8 +72,8 @@ public class TestJettyOSGiAnnotationParser
         assertTrue(moduleInfo.exists());
         
         TinyBundle bundle = TinyBundles.bundle();
-        bundle.set(Constants.BUNDLE_SYMBOLICNAME, "bundle.with.module.info");
-        bundle.add("module-info.class", new FileInputStream(moduleInfo)); //copy it into the fake bundle
+        bundle.setHeader(Constants.BUNDLE_SYMBOLICNAME, "bundle.with.module.info");
+        bundle.addResource("module-info.class", new FileInputStream(moduleInfo)); //copy it into the fake bundle
         options.add(CoreOptions.streamBundle(bundle.build()).startLevel(1));
         return options.toArray(new Option[options.size()]);
     }

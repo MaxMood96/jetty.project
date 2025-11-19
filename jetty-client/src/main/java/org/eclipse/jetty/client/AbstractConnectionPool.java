@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -29,6 +29,7 @@ import org.eclipse.jetty.client.api.Connection;
 import org.eclipse.jetty.util.Attachable;
 import org.eclipse.jetty.util.Callback;
 import org.eclipse.jetty.util.IO;
+import org.eclipse.jetty.util.NanoTime;
 import org.eclipse.jetty.util.Pool;
 import org.eclipse.jetty.util.Promise;
 import org.eclipse.jetty.util.annotation.ManagedAttribute;
@@ -275,7 +276,7 @@ public abstract class AbstractConnectionPool extends ContainerLifeCycle implemen
         {
             pending.decrementAndGet();
             if (LOG.isDebugEnabled())
-                LOG.debug("Not creating connection as pool is full, pending: {}", pending);
+                LOG.debug("Not creating connection as pool {} is full, pending: {}", pool, pending);
             return;
         }
 
@@ -316,6 +317,16 @@ public abstract class AbstractConnectionPool extends ContainerLifeCycle implemen
             if (entry != null)
             {
                 Connection connection = entry.getPooled();
+
+                if (connection.isClosed())
+                {
+                    // No point checking the return value,
+                    // the connection is already closed.
+                    remove(connection);
+                    if (LOG.isDebugEnabled())
+                        LOG.debug("Connection removed: closed {} {}", entry, pool);
+                    continue;
+                }
 
                 long maxDurationNanos = this.maxDurationNanos;
                 if (maxDurationNanos > 0L)
@@ -517,15 +528,17 @@ public abstract class AbstractConnectionPool extends ContainerLifeCycle implemen
     @Override
     public String toString()
     {
-        return String.format("%s@%x[c=%d/%d/%d,a=%d,i=%d,q=%d]",
+        return String.format("%s@%x[s=%s,c=%d/%d/%d,a=%d,i=%d,q=%d,p=%s]",
             getClass().getSimpleName(),
             hashCode(),
+            getState(),
             getPendingConnectionCount(),
             getConnectionCount(),
             getMaxConnectionCount(),
             getActiveConnectionCount(),
             getIdleConnectionCount(),
-            destination.getQueuedRequestCount());
+            destination.getQueuedRequestCount(),
+            pool);
     }
 
     private class FutureConnection extends Promise.Completable<Connection>
@@ -575,7 +588,7 @@ public abstract class AbstractConnectionPool extends ContainerLifeCycle implemen
     private static class EntryHolder
     {
         private final Pool<Connection>.Entry entry;
-        private final long creationTimestamp = System.nanoTime();
+        private final long creationNanoTime = NanoTime.now();
 
         private EntryHolder(Pool<Connection>.Entry entry)
         {
@@ -584,7 +597,7 @@ public abstract class AbstractConnectionPool extends ContainerLifeCycle implemen
 
         private boolean isExpired(long timeoutNanos)
         {
-            return System.nanoTime() - creationTimestamp >= timeoutNanos;
+            return NanoTime.since(creationNanoTime) >= timeoutNanos;
         }
     }
 }

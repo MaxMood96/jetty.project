@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -147,6 +147,8 @@ public class GzipHttpOutputInterceptor implements HttpOutput.Interceptor
                     String responseEtagGzip = etagGzip(responseEtag);
                     if (requestEtags.contains(responseEtagGzip))
                         response.getHttpFields().put(HttpHeader.ETAG, responseEtagGzip);
+                    if (_vary != null)
+                        response.getHttpFields().ensureField(_vary);
                 }
             }
 

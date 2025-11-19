@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -18,6 +18,7 @@ import org.eclipse.jetty.client.HttpDestination;
 import org.eclipse.jetty.client.HttpExchange;
 import org.eclipse.jetty.client.HttpReceiver;
 import org.eclipse.jetty.client.HttpSender;
+import org.eclipse.jetty.client.api.Connection;
 import org.eclipse.jetty.client.api.Result;
 import org.eclipse.jetty.http2.ErrorCode;
 import org.eclipse.jetty.http2.HTTP2Channel;
@@ -68,6 +69,12 @@ public class HttpChannelOverHTTP2 extends HttpChannel
     }
 
     @Override
+    protected Connection getConnection()
+    {
+        return connection;
+    }
+
+    @Override
     protected HttpSender getHttpSender()
     {
         return sender;
@@ -102,15 +109,19 @@ public class HttpChannelOverHTTP2 extends HttpChannel
         sender.send(exchange);
     }
 
+    void acquire()
+    {
+        if (LOG.isDebugEnabled())
+            LOG.debug("channel acquired {} {}", this, stream);
+    }
+
     @Override
     public void release()
     {
         setStream(null);
-        boolean released = connection.release(this);
+        connection.release(this);
         if (LOG.isDebugEnabled())
-            LOG.debug("released channel? {} {}", released, this);
-        if (released)
-            getHttpDestination().release(getHttpConnection());
+            LOG.debug("channel released {} {}", this, stream);
     }
 
     @Override
@@ -186,7 +197,14 @@ public class HttpChannelOverHTTP2 extends HttpChannel
         }
 
         @Override
-        public void onData(Stream stream, DataFrame frame, Callback callback)
+        public void onBeforeData(Stream stream)
+        {
+            // Don't demand here, as the initial demand is controlled by
+            // the application via DemandedContentListener.onBeforeContent().
+        }
+
+        @Override
+        public void onDataDemanded(Stream stream, DataFrame frame, Callback callback)
         {
             HTTP2Channel.Client channel = (HTTP2Channel.Client)((IStream)stream).getAttachment();
             channel.onData(frame, callback);

@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -26,6 +26,7 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.nullValue;
@@ -148,11 +149,8 @@ public class HttpURITest
         assertThat(uri.getHost(), is("foo"));
         assertThat(uri.getPath(), is("/bar"));
 
-        // We do allow nulls if not encoded.  This can be used for testing 2nd line of defence.
-        builder.uri("http://fo\000/bar");
-        uri = builder.asImmutable();
-        assertThat(uri.getHost(), is("fo\000"));
-        assertThat(uri.getPath(), is("/bar"));
+        // We do not allow nulls if not encoded.
+        assertThrows(IllegalArgumentException.class, () -> builder.uri("http://fo\000/bar").asImmutable());
     }
 
     @Test
@@ -208,6 +206,20 @@ public class HttpURITest
     {
         HttpURI uri = HttpURI.from("/@foo/bar");
         assertEquals("/@foo/bar", uri.getPath());
+    }
+
+    /**
+     * Test of an HttpURI of just a "/".
+     * The {@link HttpURI#from(String)} is used by HttpServletResponse.sendRedirect(String).
+     */
+    @Test
+    public void testFromSlash()
+    {
+        HttpURI uri = HttpURI.from("/");
+        assertThat("has no violations", uri.getViolations(), is(empty()));
+        assertNull(uri.getScheme());
+        assertNull(uri.getAuthority());
+        assertEquals("/", uri.getPath());
     }
 
     @Test
@@ -724,6 +736,8 @@ public class HttpURITest
 
             // Simple IPv6 host no port (default path)
             Arguments.of("http://[2001:db8::1]/", "http", "[2001:db8::1]", null, "/", null, null, null),
+            Arguments.of("http://[0:0:0:0:0:ffff:127.0.0.1]/", "http", "[0:0:0:0:0:ffff:127.0.0.1]", null, "/", null, null, null),
+            Arguments.of("http://[::ffff:127.0.0.1]/", "http", "[::ffff:127.0.0.1]", null, "/", null, null, null),
 
             // Scheme-less IPv6, host with port (default path)
             Arguments.of("//[2001:db8::1]:8080/", null, "[2001:db8::1]", "8080", "/", null, null, null),
@@ -765,7 +779,8 @@ public class HttpURITest
             assertThat("[" + input + "] .param", httpUri.getParam(), is(param));
             assertThat("[" + input + "] .query", httpUri.getQuery(), is(query));
             assertThat("[" + input + "] .fragment", httpUri.getFragment(), is(fragment));
-            assertThat("[" + input + "] .toString", httpUri.toString(), is(input));
+            if (!input.contains(":ffff:127.0.0.1"))
+                assertThat("[" + input + "] .toString", httpUri.toString(), is(input));
         }
         catch (URISyntaxException e)
         {
@@ -798,7 +813,8 @@ public class HttpURITest
         HttpURI httpUri = HttpURI.from(javaUri);
 
         assertThat("[" + input + "] .scheme", httpUri.getScheme(), is(scheme));
-        assertThat("[" + input + "] .host", httpUri.getHost(), is(host));
+        if (!input.contains(":ffff:127.0.0.1"))
+            assertThat("[" + input + "] .host", httpUri.getHost(), is(host));
         assertThat("[" + input + "] .port", httpUri.getPort(), is(port == null ? -1 : port));
         assertThat("[" + input + "] .path", httpUri.getPath(), is(path));
         assertThat("[" + input + "] .param", httpUri.getParam(), is(param));
@@ -891,5 +907,93 @@ public class HttpURITest
             .authority("host")
             .path("");
         assertEquals("//host", uri.asString());
+    }
+
+    public static Stream<String> badSchemes()
+    {
+        return Stream.of(
+            "://host/path",
+            "\t://host/path",
+            "  ://host/path",
+            "unknown^://host/path",
+            "http^://host/path"
+        );
+    }
+
+    @ParameterizedTest
+    @MethodSource("badSchemes")
+    public void testBadSchemes(String uri)
+    {
+        assertThrows(IllegalArgumentException.class, () -> HttpURI.from(uri));
+    }
+
+    public static Stream<String> badAuthorities()
+    {
+        return Stream.of(
+            "http://#host/path",
+            "https:// host/path",
+            "https://h st/path",
+            "https://h\000st/path",
+            "https://h%GGst/path",
+            "https://host%/path",
+            "https://host%0/path",
+            "https://host%u001f/path",
+            "https://host%:8080/path",
+            "https://host%0:8080/path",
+            "https://user%@host/path",
+            "https://user%0@host/path",
+            "https://host:notport/path",
+            "https://user@host:notport/path",
+            "https://user:password@host:notport/path",
+            "https://user @host.com/",
+            "https://[notIpv6]/",
+            "https://bad[0::1::2::3::4]/",
+            "http://[normal.com@]vulndetector.com/",
+            "http://normal.com[user@vulndetector].com/",
+            "http://normal.com[@]vulndetector.com/"
+        );
+    }
+
+    @ParameterizedTest
+    @MethodSource("badAuthorities")
+    public void testBadAuthority(String uri)
+    {
+        assertThrows(IllegalArgumentException.class, () -> HttpURI.from(uri));
+    }
+
+    public static Stream<Arguments> authoritiesNoPath()
+    {
+        return Stream.of(
+            Arguments.of("http://good.com#@evil.com", "good.com", null, "@evil.com"),
+            Arguments.of("http://good.com?@evil.com", "good.com", "@evil.com", null)
+        );
+    }
+
+    @ParameterizedTest
+    @MethodSource("authoritiesNoPath")
+    public void testAuthorityNoPath(String uri, String authority, String query, String fragment)
+    {
+        HttpURI httpURI = HttpURI.from(uri);
+        assertThat(httpURI.getAuthority(), is(authority));
+        assertThat(httpURI.getPath(), is(""));
+        assertThat(httpURI.getQuery(), is(query));
+        assertThat(httpURI.getFragment(), is(fragment));
+    }
+
+    public static Stream<Arguments> connectURIs()
+    {
+        return Stream.of(
+            Arguments.of("localhost:8080"),
+            Arguments.of("127.0.0.1:8080"),
+            Arguments.of("[::1]:8080")
+        );
+    }
+
+    @ParameterizedTest
+    @MethodSource("connectURIs")
+    public void testConnect(String authority)
+    {
+        HttpURI httpURI = HttpURI.from(HttpMethod.CONNECT.asString(), authority);
+        assertThat(httpURI.getAuthority(), is(authority));
     }
 }

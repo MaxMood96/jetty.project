@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -13,10 +13,12 @@
 
 package org.eclipse.jetty.util;
 
+import java.net.InetAddress;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 
 import org.eclipse.jetty.util.Utf8Appendable.NotUtf8Exception;
 import org.slf4j.Logger;
@@ -33,13 +35,30 @@ import org.slf4j.LoggerFactory;
  *
  * @see UrlEncoded
  */
-public class URIUtil
-    implements Cloneable
+public final class URIUtil
 {
     private static final Logger LOG = LoggerFactory.getLogger(URIUtil.class);
     public static final String SLASH = "/";
     public static final String HTTP = "http";
     public static final String HTTPS = "https";
+
+    // From https://www.rfc-editor.org/rfc/rfc3986
+    private static final String UNRESERVED = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-._~";
+    private static final String SUBDELIMS = "!$&'()*+,;=";
+    private static final String REGNAME = UNRESERVED + SUBDELIMS;
+
+    // Allowed characters in https://www.rfc-editor.org/rfc/rfc3986 reg-name
+    private static final boolean[] REGNAME_ALLOWED;
+
+    static
+    {
+        REGNAME_ALLOWED = new boolean[128];
+        Arrays.fill(REGNAME_ALLOWED, false);
+        for (char c : REGNAME.toCharArray())
+        {
+            REGNAME_ALLOWED[c] = true;
+        }
+    }
 
     // Use UTF-8 as per http://www.w3.org/TR/html40/appendix/notes.html#non-ascii-chars
     public static final Charset __CHARSET = StandardCharsets.UTF_8;
@@ -1123,6 +1142,50 @@ public class URIUtil
     }
 
     /**
+     * True if token is a <a href="https://www.rfc-editor.org/rfc/rfc3986">RFC3986</a> {@code reg-name} (Registered Name)
+     *
+     * @param token the to test
+     * @return true if the token passes as a valid Host Registered Name
+     */
+    public static boolean isValidHostRegisteredName(String token)
+    {
+        /* reg-name ABNF is defined as :
+         *   reg-name      = *( unreserved / pct-encoded / sub-delims )
+         *   unreserved    = ALPHA / DIGIT / "-" / "." / "_" / "~"
+         *   pct-encoded   = "%" HEXDIG HEXDIG
+         *   sub-delims    = "!" / "$" / "&" / "'" / "(" / ")"
+         *                   / "*" / "+" / "," / ";" / "="
+         */
+
+        if (token == null)
+            return true; // null token is considered valid
+
+        int length = token.length();
+        for (int i = 0; i < length; i++)
+        {
+            char c = token.charAt(i);
+            if (c > 127)
+                return false;
+            if (REGNAME_ALLOWED[c])
+                continue;
+            if (c == '%')
+            {
+                if (StringUtil.isHex(token, i + 1, 2))
+                {
+                    i += 2;
+                    continue;
+                }
+                else
+                {
+                    return false;
+                }
+            }
+            return false;
+        }
+        return true;
+    }
+
+    /**
      * Create a new URI from the arguments, handling IPv6 host encoding and default ports
      *
      * @param scheme the URI scheme
@@ -1172,11 +1235,13 @@ public class URIUtil
         {
             switch (scheme)
             {
+                case "ws":
                 case "http":
                     if (port != 80)
                         url.append(':').append(port);
                     break;
 
+                case "wss":
                 case "https":
                     if (port != 443)
                         url.append(':').append(port);
@@ -1206,11 +1271,13 @@ public class URIUtil
             {
                 switch (scheme)
                 {
+                    case "ws":
                     case "http":
                         if (port != 80)
                             url.append(':').append(port);
                         break;
 
+                    case "wss":
                     case "https":
                         if (port != 443)
                             url.append(':').append(port);
@@ -1336,6 +1403,67 @@ public class URIUtil
         encodePath(buf, path, offset);
 
         return URI.create(buf.toString());
+    }
+
+    /**
+     * Validate an IPv4 or IPv6 address.
+     * @param inetAddress the address to validate
+     * @throws IllegalArgumentException if the address is not valid
+     */
+    public static void validateInetAddress(String inetAddress)
+    {
+        try
+        {
+            InetAddress ignored = InetAddress.getByName(inetAddress);
+        }
+        catch (Throwable e)
+        {
+            throw new IllegalArgumentException("Bad [IPv6] address", e);
+        }
+    }
+
+    /**
+     * Validate and normalize the scheme,
+     *
+     * @param scheme The scheme to normalize
+     * @return The normalized version of the scheme
+     * @throws IllegalArgumentException If the scheme is not valid
+     */
+    public static String validateScheme(String scheme)
+    {
+        if (scheme == null || scheme.isEmpty())
+            throw new IllegalArgumentException("Bad scheme");
+
+        //  scheme = ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )
+        StringBuilder toLowerCase = null;
+        for (int i = 0; i < scheme.length(); i++)
+        {
+            char c = scheme.charAt(i);
+            if (c >= 'A' && c <= 'Z')
+            {
+                if (toLowerCase == null)
+                {
+                    toLowerCase = new StringBuilder(scheme.length());
+                    toLowerCase.append(scheme, 0, i);
+                }
+                toLowerCase.append(Character.toLowerCase(c));
+            }
+            else if (c >= 'a' && c <= 'z' ||
+                (i > 0 && (c >= '0' && c <= '9' ||
+                    c == '.' ||
+                    c == '+' ||
+                    c == '-')))
+            {
+                if (toLowerCase != null)
+                    toLowerCase.append(c);
+            }
+            else
+            {
+                throw new IllegalArgumentException("Bad scheme");
+            }
+        }
+
+        return toLowerCase == null ? scheme : toLowerCase.toString();
     }
 
     /**

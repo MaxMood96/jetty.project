@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -35,12 +35,14 @@ import org.eclipse.jetty.http2.api.Stream;
 import org.eclipse.jetty.http2.frames.DataFrame;
 import org.eclipse.jetty.http2.frames.HeadersFrame;
 import org.eclipse.jetty.http2.frames.ResetFrame;
+import org.eclipse.jetty.http2.parser.RateControl;
 import org.eclipse.jetty.http2.server.AbstractHTTP2ServerConnectionFactory;
 import org.eclipse.jetty.servlet.ServletContextHandler;
 import org.eclipse.jetty.util.ByteArrayOutputStream2;
 import org.eclipse.jetty.util.Callback;
 import org.eclipse.jetty.util.FuturePromise;
 import org.eclipse.jetty.util.IO;
+import org.eclipse.jetty.util.NanoTime;
 import org.eclipse.jetty.util.thread.QueuedThreadPool;
 import org.eclipse.jetty.util.thread.Scheduler;
 import org.hamcrest.Matchers;
@@ -72,6 +74,8 @@ public class SmallThreadPoolLoadTest extends AbstractTest
     public void testConcurrentWithSmallServerThreadPool() throws Exception
     {
         start(new LoadServlet());
+        AbstractHTTP2ServerConnectionFactory h2 = connector.getConnectionFactory(AbstractHTTP2ServerConnectionFactory.class);
+        h2.setRateControlFactory(new RateControl.Factory() {});
 
         // Only one connection to the server.
         Session session = newClient(new Session.Listener.Adapter());
@@ -104,7 +108,7 @@ public class SmallThreadPoolLoadTest extends AbstractTest
             }, iterations * factor, TimeUnit.MILLISECONDS);
 
             long successes = 0;
-            long begin = System.nanoTime();
+            long begin = NanoTime.now();
             for (int i = 0; i < iterations; ++i)
             {
                 boolean success = test(session, latch);
@@ -113,10 +117,9 @@ public class SmallThreadPoolLoadTest extends AbstractTest
             }
 
             assertTrue(latch.await(iterations, TimeUnit.SECONDS));
-            long end = System.nanoTime();
             assertThat(successes, Matchers.greaterThan(0L));
             task.cancel();
-            long elapsed = TimeUnit.NANOSECONDS.toMillis(end - begin);
+            long elapsed = NanoTime.millisSince(begin);
             logger.info("{} requests in {} ms, {}/{} success/failure, {} req/s",
                 iterations, elapsed,
                 successes, iterations - successes,

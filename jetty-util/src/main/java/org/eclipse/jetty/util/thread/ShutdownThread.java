@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -31,14 +31,11 @@ import org.slf4j.LoggerFactory;
 public class ShutdownThread extends Thread
 {
     private static final Logger LOG = LoggerFactory.getLogger(ShutdownThread.class);
-    private static final ShutdownThread _thread = PrivilegedThreadFactory.newThread(() ->
-    {
-        return new ShutdownThread();
-    });
+    private static final ShutdownThread _thread = PrivilegedThreadFactory.newThread(ShutdownThread::new);
 
     private final AutoLock _lock = new AutoLock();
     private boolean _hooked;
-    private final List<LifeCycle> _lifeCycles = new CopyOnWriteArrayList<LifeCycle>();
+    private final List<LifeCycle> _lifeCycles = new CopyOnWriteArrayList<>();
 
     /**
      * Default constructor for the singleton

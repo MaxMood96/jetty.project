@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -20,7 +20,7 @@ import org.eclipse.jetty.http3.frames.SettingsFrame;
 
 public interface ParserListener
 {
-    public default void onHeaders(long streamId, HeadersFrame frame)
+    public default void onHeaders(long streamId, HeadersFrame frame, boolean wasBlocked)
     {
     }
 
@@ -54,9 +54,9 @@ public interface ParserListener
         }
 
         @Override
-        public void onHeaders(long streamId, HeadersFrame frame)
+        public void onHeaders(long streamId, HeadersFrame frame, boolean wasBlocked)
         {
-            listener.onHeaders(streamId, frame);
+            listener.onHeaders(streamId, frame, wasBlocked);
         }
 
         @Override

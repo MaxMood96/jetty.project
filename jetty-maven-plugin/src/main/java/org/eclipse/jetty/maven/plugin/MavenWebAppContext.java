@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -503,4 +503,11 @@ public class MavenWebAppContext extends WebAppContext
             LOG.warn("Problem initializing cdi", e);
         }
     }
+
+    // need to be overridden to avoid Maven reflection issues with super class and override method
+    public void setExtraClasspath(String extraClasspath) throws IOException
+    {
+        super.setExtraClasspath(extraClasspath);
+    }
+
 }

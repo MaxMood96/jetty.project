@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -71,7 +71,7 @@ public class MavenMetadataTest
     @Test
     public void testIsExpiredTimestampNow()
     {
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(ZoneId.of("UTC"));
         String timestamp = getTimestampFormatter().format(now);
         assertFalse(MavenMetadata.isExpiredTimestamp(timestamp), "Timestamp should NOT be stale: " + timestamp);
     }

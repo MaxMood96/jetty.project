@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -163,7 +163,7 @@ public class JavaxWebSocketCdiTest
     }
 
     @Test
-    @Disabled("See issue https://github.com/eclipse/jetty.project/issues/6174")
+    @Disabled("See issue https://github.com/jetty/jetty.project/issues/6174")
     public void testHttpSessionInjection() throws Exception
     {
         start((servletContext, wsContainer) -> wsContainer.addEndpoint(CdiHttpSessionSocket.class));
