@@ -16,7 +16,7 @@
     <pax.exam.version>4.13.1</pax.exam.version>
     <pax.url.version>2.6.2</pax.url.version>
     <bnd.version>5.2.0</bnd.version>
-    <swissbox.version>1.8.3</swissbox.version>
+    <swissbox.version>1.9.0</swissbox.version>
     <tinybundles.version>3.0.0</tinybundles.version>
     <injection.bundle.version>1.2</injection.bundle.version>
   </properties>
